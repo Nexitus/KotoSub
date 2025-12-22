@@ -1,0 +1,9 @@
+
+{
+  "name": "TELUS AI Video Subtitle Translator",
+  "description": "An enterprise-grade tool for automated video transcription and translation, designed with the TELUS brand identity and powered by Gemini AI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

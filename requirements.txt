@@ -1,0 +1,17 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+openai>=1.55.0
+ffmpeg-python==0.2.0
+gradio>=4.44.1
+pysrt==1.1.2
+python-multipart>=0.0.12
+pyannote.audio==3.1.1
+torch>=2.1.0
+torchaudio>=2.1.0
+pydub==0.25.1
+
+# Note: If you have whisperx installed, it may conflict with torch/torchaudio versions.
+# This app does NOT use whisperx. To resolve conflicts, run: pip uninstall whisperx
