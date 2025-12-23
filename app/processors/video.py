@@ -108,24 +108,27 @@ class VideoProcessor:
             (
                 stream
                 .output(output_path, **kwargs)
-                .run(overwrite_output=True, quiet=True)
+                .run(overwrite_output=True, quiet=False) # Show output or at least don't swallow it
             )
 
         try:
             if use_gpu:
                 try:
-                    print("[Video] Attempting encoding with hevc_nvenc...")
+                    print(f"[Video] Attempting encoding with hevc_nvenc for: {os.path.basename(output_path)}")
                     run_ffmpeg('hevc_nvenc', preset='p4') # p4 is medium preset for NVENC
+                    print("[Video] NVENC encoding successful.")
                     return output_path
                 except ffmpeg.Error as e:
-                    print(f"[Video] NVENC encoding failed: {e.stderr.decode() if e.stderr else str(e)}")
+                    print(f"[Video] NVENC encoding failed or not available: {e.stderr.decode() if e.stderr else str(e)}")
                     print("[Video] Falling back to CPU encoding (libx264)...")
             
             # CPU fallback or default
+            print(f"[Video] Starting CPU encoding (libx264) for: {os.path.basename(output_path)}")
             run_ffmpeg('libx264')
+            print("[Video] CPU encoding successful.")
             return output_path
             
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode() if e.stderr else str(e)
-            print(f"FFmpeg burn-in error: {error_msg}")
+            print(f"FFmpeg burn-in fatal error: {error_msg}")
             raise RuntimeError(f"Failed to burn subtitles: {error_msg}")

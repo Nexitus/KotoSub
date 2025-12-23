@@ -22,9 +22,9 @@ This document outlines the high-priority enhancements recommended for the AI Vid
 - **Status:** ✅ Implemented as a second LLM pass in `TranslationService`.
 - **Benefit:** Professional-grade accuracy and reliable "set-and-forget" automation.
 
-## 5. Parallel Processing Pipeline [PENDING]
+## 5. Parallel Processing Pipeline [DONE]
 **Goal:** Maximize throughput by processing chunks concurrently.
-- **Status:** ❌ Not yet implemented. Processing remains linear/sequential.
+- **Status:** ✅ Fully implemented using `ThreadPoolExecutor` for API-based translation and quality checks.
 - **Benefit:** Dramatically faster processing for long-form video content.
 
 ## 6. Advanced Subtitle Formatting (ASS/VTT) [PARTIAL]
@@ -32,9 +32,9 @@ This document outlines the high-priority enhancements recommended for the AI Vid
 - **Status:** ⚠️ ASS generation is coded but not yet exported/selectable. VTT support is missing.
 - **Benefit:** Better visual presentation and compatibility with modern video platforms.
 
-## 7. Intelligent Segment & Readability Refinement [PARTIAL]
+## 7. Intelligent Segment & Readability Refinement [DONE]
 **Goal:** Optimize subtitle timing for human reading speeds.
-- **Status:** ⚠️ Method exists in `SubtitleGenerator` but logic is currently a placeholder.
+- **Status:** ✅ Implemented CPS-based splitting logic to ensure subtitles are readable at glance.
 - **Benefit:** Improved viewer comfort; subtitles won't flash too fast or stay too long.
 
 ## 8. Expanded Target Language Support [DONE]

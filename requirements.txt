@@ -24,3 +24,5 @@ llama-cpp-python>=0.2.20
 # NVIDIA Libraries for Windows GPU support
 nvidia-cudnn-cu12>=9.0.0
 nvidia-cublas-cu12>=12.1.0
+
+tqdm>=4.66.0

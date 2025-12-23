@@ -43,6 +43,7 @@ class SubtitleGenerator:
     def refine_segments(self, segments: List[Dict[str, Any]], max_cps: int = 20) -> List[Dict[str, Any]]:
         """
         Feature 7: Refines segments for better readability and timing.
+        Splits segments if they exceed characters-per-second (CPS) threshold.
         """
         if not segments:
             return []
@@ -50,17 +51,38 @@ class SubtitleGenerator:
         refined = []
         for seg in segments:
             # Basic refinement: remove leading/trailing noise
-            seg['text'] = seg['text'].strip()
-            
-            # Check CPS (Characters Per Second)
+            text = seg['text'].strip()
             duration = seg['end'] - seg['start']
-            if duration > 0:
-                cps = len(seg['text']) / duration
-                if cps > max_cps:
-                    # Logic to split if too long (simplified for now)
-                    pass
             
-            refined.append(seg)
+            if duration > 0 and (len(text) / duration) > max_cps and " " in text:
+                # Logic to split into two halves
+                words = text.split(" ")
+                midpoint = len(words) // 2
+                
+                text1 = " ".join(words[:midpoint])
+                text2 = " ".join(words[midpoint:])
+                
+                # Split time proportionally
+                split_time = seg['start'] + (duration * (len(text1) / len(text)))
+                
+                refined.append({
+                    "start": seg['start'],
+                    "end": split_time,
+                    "text": text1,
+                    "original": seg.get('original', ''),
+                    "speaker": seg.get('speaker')
+                })
+                refined.append({
+                    "start": split_time,
+                    "end": seg['end'],
+                    "text": text2,
+                    "original": seg.get('original', ''),
+                    "speaker": seg.get('speaker')
+                })
+            else:
+                seg['text'] = text
+                refined.append(seg)
+                
         return refined
 
     def _seconds_to_subriptime(self, seconds: float) -> pysrt.SubRipTime:

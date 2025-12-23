@@ -133,14 +133,16 @@ class TranslationService:
     def translate(self, segments: List[Dict[str, Any]], source_lang: str, target_lang: str) -> List[Dict[str, Any]]:
         """
         Translates a list of transcript segments while preserving structure.
+        Uses parallel processing for API providers.
         """
         import time
-        translated_segments = []
+        from concurrent.futures import ThreadPoolExecutor
+        from tqdm import tqdm
+        import threading
+
         total_segments = len(segments)
+        print(f"[Translation] Starting parallel translation of {total_segments} segments from {source_lang} to {target_lang}")
         
-        print(f"[Translation] Starting translation of {total_segments} segments from {source_lang} to {target_lang}")
-        
-        # System prompt with localization focus
         system_prompt = (
             f"You are a professional subtitle translator and localization expert. "
             f"Translate text from {source_lang} to {target_lang}. "
@@ -151,29 +153,37 @@ class TranslationService:
             "RESTRICTION: Output ONLY the final translation. Do not include labels, source text, or explanations."
         )
 
-        for i, segment in enumerate(segments):
+        results = [None] * total_segments
+        # Thread lock for local LLM to prevent concurrent inference which GGUF/llama-cpp doesn't like
+        llm_lock = threading.Lock()
+
+        def translate_single(index, segment):
             text = segment['text']
             speaker = segment.get('speaker')
             input_text = f"[{speaker}] {text}" if speaker else text
             
-            idx = i + 1
-            start_time = time.time()
-            print(f"[LLM] [{idx}/{total_segments}] Inference started: {input_text[:50]}...")
-            
             try:
-                translation = self._get_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": input_text}
-                    ],
-                    temperature=0.3
-                )
+                # If local, we MUST lock
+                if self.use_local:
+                    with llm_lock:
+                        translation = self._get_completion(
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": input_text}
+                            ],
+                            temperature=0.3
+                        )
+                else:
+                    translation = self._get_completion(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": input_text}
+                        ],
+                        temperature=0.3
+                    )
                 
                 # Clean the translation
                 translation = self._clean_translation(translation, text)
-                
-                duration = time.time() - start_time
-                print(f"[LLM] [{idx}/{total_segments}] Completed in {duration:.2f}s. Result: {translation[:50]}...")
                 
                 # Strip speaker from translation if LLM included it by mistake
                 if speaker and translation.startswith(f"[{speaker}]"):
@@ -184,73 +194,111 @@ class TranslationService:
                 # Final polish cleanup
                 translation = self._clean_translation(translation)
                 
-                translated_segments.append({
+                results[index] = {
                     "start": segment['start'],
                     "end": segment['end'],
                     "text": translation,
                     "original": text,
                     "speaker": speaker
-                })
-                
+                }
             except Exception as e:
-                duration = time.time() - start_time
-                print(f"[LLM] [{idx}/{total_segments}] Error after {duration:.2f}s: {e}")
-                translated_segments.append({
+                # print(f"[LLM] Error at index {index}: {e}") # Suppress to keep tqdm clean
+                results[index] = {
                     "start": segment['start'],
                     "end": segment['end'],
                     "text": f"[Error] {text}",
                     "original": text,
                     "speaker": speaker
-                })
+                }
+
+        # Use more workers for API, fewer for local to avoid overhead
+        max_workers = 10 if not self.use_local else 2
+        
+        with tqdm(total=total_segments, desc="Translating", unit="seg", colour="green") as pbar:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for i, seg in enumerate(segments):
+                    future = executor.submit(translate_single, i, seg)
+                    future.add_done_callback(lambda _: pbar.update(1))
+                    futures.append(future)
+                
+                # Wait for all to complete
+                for future in futures:
+                    future.result()
 
         print(f"[Translation] Finished translating {total_segments} segments.")
-        return translated_segments
+        return [r for r in results if r is not None]
 
     def quality_check(self, segments: List[Dict[str, Any]], source_lang: str, target_lang: str) -> List[Dict[str, Any]]:
         """
-        Performs a second pass to verify and correct translations.
+        Performs a second pass to verify and fix translation quality.
+        Uses parallel processing for API providers.
         """
-        import time
-        system_prompt = (
-            f"You are a quality assurance localization editor for subtitles. Verify the following translations from {source_lang} to {target_lang}. "
-            "Ensure the translations convey the correct meaning and flow naturally in the target language. "
-            "Correct any awkward phrasing, hallucinations, or literal translations that don't make sense. "
-            "Maintain the same number of segments and order. Output ONLY the corrected text for each segment, separated by '---'. "
-            "RESTRICTION: Do not include labels like 'Orig:' or 'Trans:' in your response."
-        )
-        
-        # Batch processing for efficiency
-        batch_size = 10
-        total_batches = (len(segments) + batch_size - 1) // batch_size
-        
-        print(f"[QA] Starting quality check pass for {len(segments)} segments ({total_batches} batches).")
+        from concurrent.futures import ThreadPoolExecutor
+        from tqdm import tqdm
+        import threading
 
-        for i in range(0, len(segments), batch_size):
-            batch_idx = (i // batch_size) + 1
-            batch = segments[i:i+batch_size]
-            prompt_content = "\n".join([f"Orig: {s['original']}\nTrans: {s['text']}\n---" for s in batch])
+        total_segments = len(segments)
+        print(f"[QA] Starting parallel quality verification for {total_segments} segments...")
+        
+        system_prompt = (
+            f"You are a subtitle localization auditor. You will be given a target translation ({target_lang}) "
+            f"and the original source text ({source_lang}). "
+            "Your job is to fix any errors, hallucinations, or unnatural phrasing. "
+            "Ensure the translation is idiomatic and preserves the emotional tone and context of the original. "
+            "If the translation is already perfect, return it unchanged. "
+            "RESTRICTION: Output ONLY the improved text. No labels or explanations."
+        )
+
+        results = [None] * total_segments
+        llm_lock = threading.Lock()
+
+        def qa_single(index, segment):
+            original = segment.get('original', segment['text'])
+            translated = segment['text']
             
-            start_time = time.time()
-            print(f"[QA] [{batch_idx}/{total_batches}] Processing batch of {len(batch)} segments...")
+            user_content = f"Original: {original}\nTranslated: {translated}"
+            
             try:
-                content = self._get_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt_content}
-                    ],
-                    temperature=0.1
-                )
+                if self.use_local:
+                    with llm_lock:
+                        refined = self._get_completion(
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_content}
+                            ],
+                            temperature=0.2
+                        )
+                else:
+                    refined = self._get_completion(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_content}
+                        ],
+                        temperature=0.2
+                    )
                 
-                duration = time.time() - start_time
-                corrections = [c.strip() for c in content.split('---') if c.strip()]
-                print(f"[QA] [{batch_idx}/{total_batches}] Batch completed in {duration:.2f}s. Received {len(corrections)} segments.")
+                # Cleanup
+                refined = self._clean_translation(refined, original)
                 
-                for j, correction in enumerate(corrections):
-                    if j < len(batch):
-                        batch[j]['text'] = self._clean_translation(correction)
-            except Exception as e:
-                duration = time.time() - start_time
-                print(f"[QA] [{batch_idx}/{total_batches}] Error after {duration:.2f}s: {e}")
+                new_segment = segment.copy()
+                new_segment['text'] = refined
+                results[index] = new_segment
+            except Exception:
+                results[index] = segment # Fallback to unrefined
+
+        max_workers = 10 if not self.use_local else 2
+        
+        with tqdm(total=total_segments, desc="Verifying", unit="seg", colour="yellow") as pbar:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for i, seg in enumerate(segments):
+                    future = executor.submit(qa_single, i, seg)
+                    future.add_done_callback(lambda _: pbar.update(1))
+                    futures.append(future)
                 
-        print("[QA] Quality check pass finished.")
-        return segments
+                for future in futures:
+                    future.result()
+
+        print("[QA] Quality verification complete.")
+        return [r for r in results if r is not None]
