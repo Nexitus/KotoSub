@@ -114,7 +114,11 @@ class TranslationService:
     def _get_completion(self, messages: List[Dict[str, str]], temperature: float = 0.3) -> str:
         """
         Abstracts the chat completion call for both API and Local.
+        Includes exponential backoff for API providers.
         """
+        import time
+        import random
+
         if self.use_local:
             response = self.local_client.create_chat_completion(
                 messages=messages,
@@ -123,12 +127,35 @@ class TranslationService:
             )
             return response['choices'][0]['message']['content'].strip()
         else:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature
-            )
-            return response.choices[0].message.content.strip()
+            max_retries = 5
+            base_delay = 2
+            
+            for attempt in range(max_retries):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=temperature
+                    )
+                    return response.choices[0].message.content.strip()
+                except Exception as e:
+                    # Check if it's a rate limit error (429)
+                    is_rate_limit = "429" in str(e) or "rate_limit" in str(e).lower()
+                    
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        delay = (base_delay ** attempt) + random.uniform(0, 1)
+                        if is_rate_limit:
+                            delay *= 2 # Wait longer for rate limits
+                            
+                        # Only print error for non-rate-limit or if it's the 3rd+ attempt
+                        if not is_rate_limit or attempt > 1:
+                            print(f"[LLM] Connection issue (attempt {attempt+1}/{max_retries}). Retrying in {delay:.1f}s...")
+                            
+                        time.sleep(delay)
+                    else:
+                        print(f"[LLM] Final attempt failed: {e}")
+                        raise e
 
     def translate(self, segments: List[Dict[str, Any]], source_lang: str, target_lang: str) -> List[Dict[str, Any]]:
         """

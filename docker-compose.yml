@@ -1,0 +1,22 @@
+services:
+  kotosub:
+    build: .
+    image: kotosub:latest
+    container_name: kotosub
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+      - ./.env:/app/.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}

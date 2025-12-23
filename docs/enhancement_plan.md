@@ -47,7 +47,7 @@ This document outlines the high-priority enhancements recommended for the AI Vid
 - **Status:** ✅ FFMPEG `afftdn` and `loudnorm` filters are active.
 - **Benefit:** Reliable transcription for outdoor, low-quality, or noisy source material.
 
-## 10. Robust Error Recovery & Dockerization [PENDING]
-**Goal:** Reliable "one-click" operation across all systems.
-- **Status:** ❌ Dockerfile and exponential backoff logic are missing.
-- **Benefit:** Eliminated installation headaches and resilience against transit network/API failures.
+## 10. Robust Error Recovery & Dockerization [DONE]
+**Goal:** Ensure the app can run anywhere and handle service interruptions.
+- **Status:** ✅ Completed. Created multi-stage `Dockerfile` and `docker-compose.yml` with GPU support. Implemented exponential backoff for LLM API calls.
+- **Benefit:** Easy "one-command" deployment and significantly increased reliability against API rate limits.
