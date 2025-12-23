@@ -28,9 +28,36 @@ const App: React.FC = () => {
       huggingFaceToken: '',
       whisperModel: 'whisper-large-v3',
       llmModel: 'gemini-3-flash-preview',
-      outputDir: 'C:\\Videos\\Translated'
+      outputDir: 'C:\\Videos\\Translated',
+      transcriptionProvider: 'openai',
+      translationProvider: 'openai',
+      localWhisperModel: 'medium',
+      localLlmModel: 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF',
+      localLlmFile: 'mistral-7b-instruct-v0.2.Q4_K_M.gguf',
+      useGpuEncoding: false,
+      processingMode: 'cloud'
     };
   });
+
+  // Migration for stale settings (TheBloke repo changes)
+  React.useEffect(() => {
+    let updated = false;
+    const newSettings = { ...settings };
+
+    if (newSettings.localLlmModel === 'TheBloke/dolphin-2.8-mistral-7b-v02-GGUF') {
+      newSettings.localLlmModel = 'mradermacher/dolphin-2.8-mistral-7b-v02-GGUF';
+      updated = true;
+    }
+    if (newSettings.localLlmModel === 'TheBloke/Noromaid-7b-v0.4-GGUF') {
+      newSettings.localLlmModel = 'mradermacher/Noromaid-7b-v0.4-GGUF';
+      updated = true;
+    }
+
+    if (updated) {
+      console.log('Migrating stale model repository settings...');
+      onSaveSettings(newSettings);
+    }
+  }, []);
 
   // Translation State (Persistent during navigation)
   const [isProcessing, setIsProcessing] = useState(false);
@@ -100,9 +127,13 @@ const App: React.FC = () => {
             huggingFace: settings.huggingFaceToken
           },
           baseUrl: settings.baseUrl,
-          whisperModel: settings.whisperModel,
-          llmModel: settings.llmModel,
-          outputDir: settings.outputDir
+          whisperModel: settings.transcriptionProvider === 'local' ? settings.localWhisperModel : settings.whisperModel,
+          llmModel: settings.translationProvider === 'local' ? settings.localLlmModel : settings.llmModel,
+          localLlmFile: settings.localLlmFile,
+          outputDir: settings.outputDir,
+          transcriptionProvider: settings.transcriptionProvider,
+          translationProvider: settings.translationProvider,
+          useGpuEncoding: settings.useGpuEncoding
         },
         updateStepsFromEvent
       );

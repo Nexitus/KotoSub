@@ -4,50 +4,50 @@ This document outlines the high-priority enhancements recommended for the AI Vid
 
 ## 1. Diarization (Speaker Identification) [DONE]
 **Goal:** Automatically identify and label different speakers in the video.
-- **Implementation:** Integrate a diarization library (e.g., `pyannote-audio` or `whisper-diarization`).
+- **Status:** ✅ Fully implemented using `pyannote-audio`.
 - **Benefit:** Essential for multi-person dialogues and accessibility.
 
-## 2. Full Offline Mode (Local Whisper & LLM with CUDA)
+## 2. Full Offline Mode (Local Whisper & LLM with CUDA) [DONE]
 **Goal:** Allow users to run the entire pipeline locally with mandatory GPU acceleration.
-- **Implementation:** Support `faster-whisper` and `vLLM` specifically configured for **CUDA**.
+- **Status:** ✅ Fully implemented with `faster-whisper` and `llama-cpp-python`.
 - **Benefit:** Privacy, speed, and zero-cost operation for NVIDIA users.
 
 ## 3. Automatic Language Detection [DONE]
 **Goal:** Remove the need for manual source language selection.
-- **Implementation:** Use Whisper's native language identification feature on the first 30 seconds of audio upon file upload.
+- **Status:** ✅ Implemented in both API and Local modes.
 - **Benefit:** Improved UX and smoother batch processing for multi-lingual file sets.
 
 ## 4. AI Quality Verification Pass [DONE]
 **Goal:** Ensure subtitle accuracy by cross-referencing output with source context.
-- **Implementation:** A second LLM pass that compares generated subtitles against the full transcript/audio to catch hallucinations or timing mismatches.
+- **Status:** ✅ Implemented as a second LLM pass in `TranslationService`.
 - **Benefit:** Professional-grade accuracy and reliable "set-and-forget" automation.
 
-## 5. Parallel Processing Pipeline
+## 5. Parallel Processing Pipeline [PENDING]
 **Goal:** Maximize throughput by processing chunks concurrently.
-- **Implementation:** Use `ThreadPoolExecutor` for API calls and concurrent audio chunking.
+- **Status:** ❌ Not yet implemented. Processing remains linear/sequential.
 - **Benefit:** Dramatically faster processing for long-form video content.
 
-## 6. Advanced Subtitle Formatting (ASS/VTT) [DONE]
+## 6. Advanced Subtitle Formatting (ASS/VTT) [PARTIAL]
 **Goal:** Support modern formatting and web compatibility.
-- **Implementation:** Support ASS for styling/positioning and VTT for web players.
+- **Status:** ⚠️ ASS generation is coded but not yet exported/selectable. VTT support is missing.
 - **Benefit:** Better visual presentation and compatibility with modern video platforms.
 
-## 7. Intelligent Segment & Readability Refinement [DONE]
+## 7. Intelligent Segment & Readability Refinement [PARTIAL]
 **Goal:** Optimize subtitle timing for human reading speeds.
-- **Implementation:** Logic to merge/split segments based on Character Per Second (CPS) metrics and scene changes.
+- **Status:** ⚠️ Method exists in `SubtitleGenerator` but logic is currently a placeholder.
 - **Benefit:** Improved viewer comfort; subtitles won't flash too fast or stay too long.
 
 ## 8. Expanded Target Language Support [DONE]
 **Goal:** Translate into any major global language.
-- **Implementation:** Dynamic prompt injection and UI support for multi-target selection.
+- **Status:** ✅ Backend supports it; UI restricted to English currently by user request.
 - **Benefit:** Opens the tool to a global market beyond English speakers.
 
 ## 9. Audio Pre-processing (Denoising & Normalization) [DONE]
 **Goal:** Improve transcription accuracy in sub-optimal recording conditions.
-- **Implementation:** Integrate `DeepFilterNet` or FFMPEG filters to isolate voice from background noise.
+- **Status:** ✅ FFMPEG `afftdn` and `loudnorm` filters are active.
 - **Benefit:** Reliable transcription for outdoor, low-quality, or noisy source material.
 
-## 10. Robust Error Recovery & Dockerization
+## 10. Robust Error Recovery & Dockerization [PENDING]
 **Goal:** Reliable "one-click" operation across all systems.
-- **Implementation:** Exponential backoff for API limits and a full-stack Docker environment including FFmpeg.
+- **Status:** ❌ Dockerfile and exponential backoff logic are missing.
 - **Benefit:** Eliminated installation headaches and resilience against transit network/API failures.

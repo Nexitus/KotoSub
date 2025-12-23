@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { AppSettings } from '../types';
-import { COLORS } from '../constants';
+import { COLORS, LOCAL_LLM_MODELS } from '../constants';
 import Card from './Card';
 
 interface SettingsProps {
@@ -21,49 +21,87 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
         <p className="text-gray-500">Manage your API tokens and default processing parameters.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <Card title="AI Provider Access">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">API Key</label>
-              <input
-                type="password"
-                name="apiKey"
-                value={settings.apiKey}
-                onChange={handleChange}
-                placeholder="sk-..."
-                className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">AI Router</label>
-              <div className="space-y-2">
-                <select
-                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'fuelix') onSave({ ...settings, baseUrl: 'https://proxy.fuelix.ai' });
-                    else if (val === 'openrouter') onSave({ ...settings, baseUrl: 'https://openrouter.ai/api/v1' });
-                  }}
-                  defaultValue={settings.baseUrl.includes('fuelix') ? 'fuelix' : settings.baseUrl.includes('openrouter') ? 'openrouter' : 'custom'}
-                >
-                  <option value="fuelix">FueliX (Default)</option>
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="custom">Custom Endpoint</option>
-                </select>
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm mb-8 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-bold text-gray-800">Processing Mode</h3>
+          <p className="text-sm text-gray-500">Choose between Cloud APIs (Quality, slower) or Local GPU (Private, faster).</p>
+        </div>
 
+        <div className="flex bg-gray-100 p-1 rounded-lg">
+          <button
+            className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${settings.processingMode === 'cloud' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => {
+              onSave({
+                ...settings,
+                processingMode: 'cloud',
+                transcriptionProvider: 'openai',
+                translationProvider: 'openai'
+              });
+            }}
+          >
+            Cloud AI
+          </button>
+          <button
+            className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${settings.processingMode === 'local' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => {
+              onSave({
+                ...settings,
+                processingMode: 'local',
+                transcriptionProvider: 'local',
+                translationProvider: 'local'
+              });
+            }}
+          >
+            Local Mode (GPU)
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {settings.processingMode === 'cloud' && (
+          <Card title="AI Provider Access">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">API Key</label>
                 <input
-                  type="text"
-                  name="baseUrl"
-                  value={settings.baseUrl}
+                  type="password"
+                  name="apiKey"
+                  value={settings.apiKey}
                   onChange={handleChange}
-                  placeholder="https://..."
-                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-sm text-gray-600"
+                  placeholder="sk-..."
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">AI Router</label>
+                <div className="space-y-2">
+                  <select
+                    className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'fuelix') onSave({ ...settings, baseUrl: 'https://proxy.fuelix.ai' });
+                      else if (val === 'openrouter') onSave({ ...settings, baseUrl: 'https://openrouter.ai/api/v1' });
+                    }}
+                    defaultValue={settings.baseUrl.includes('fuelix') ? 'fuelix' : settings.baseUrl.includes('openrouter') ? 'openrouter' : 'custom'}
+                  >
+                    <option value="fuelix">FueliX (Default)</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="custom">Custom Endpoint</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    name="baseUrl"
+                    value={settings.baseUrl}
+                    onChange={handleChange}
+                    placeholder="https://..."
+                    className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-sm text-gray-600"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        )}
 
         <Card title="Integration Tokens">
           <div>
@@ -81,31 +119,103 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
         </Card>
       </div>
 
+      {settings.processingMode === 'local' && (
+        <Card title="Local Processing (GPU)">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Local Whisper Model</label>
+                <select
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                  name="localWhisperModel"
+                  value={settings.localWhisperModel}
+                  onChange={handleChange}
+                >
+                  <option value="tiny">Tiny (Fastest)</option>
+                  <option value="base">Base</option>
+                  <option value="small">Small</option>
+                  <option value="medium">Medium (Balanced)</option>
+                  <option value="large-v3">Large v3 (Best)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Local LLM Model</label>
+                <select
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all font-medium"
+                  name="localLlmModel"
+                  value={settings.localLlmModel}
+                  onChange={(e) => {
+                    const selected = LOCAL_LLM_MODELS.find(m => m.repo === e.target.value);
+                    if (selected) {
+                      onSave({
+                        ...settings,
+                        localLlmModel: selected.repo,
+                        localLlmFile: selected.file
+                      });
+                    }
+                  }}
+                >
+                  {LOCAL_LLM_MODELS.map(m => (
+                    <option key={m.repo} value={m.repo}>{m.label}</option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-gray-400 italic">
+                  Currently selected file: <span className="font-mono text-purple-600 font-bold">{settings.localLlmFile}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="flex items-center space-x-3 cursor-pointer p-4 bg-gray-50 rounded-lg border border-gray-100">
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  checked={settings.useGpuEncoding}
+                  onChange={(e) => onSave({ ...settings, useGpuEncoding: e.target.checked })}
+                />
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-700">Use Hardware Acceleration (NVENC)</span>
+                  <span className="text-xs text-gray-400 italic">Uses GPU for video encoding (HEVC). Faster but requires NVIDIA GPU.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </Card>
+      )}
+
+
       <Card title="System Defaults">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Whisper Model</label>
-            <input
-              type="text"
-              name="whisperModel"
-              value={settings.whisperModel}
-              onChange={handleChange}
-              placeholder="whisper-large-v3"
-              className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">LLM Model</label>
-            <input
-              type="text"
-              name="llmModel"
-              value={settings.llmModel}
-              onChange={handleChange}
-              placeholder="gemini-2.0-flash-exp"
-              className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div>
+          {settings.processingMode === 'cloud' && (
+            <>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Whisper Model</label>
+                <input
+                  type="text"
+                  name="whisperModel"
+                  value={settings.whisperModel}
+                  onChange={handleChange}
+                  placeholder="whisper-large-v3"
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">LLM Model</label>
+                <input
+                  type="text"
+                  name="llmModel"
+                  value={settings.llmModel}
+                  onChange={handleChange}
+                  placeholder="gemini-2.0-flash-exp"
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </>
+          )}
+          <div className={settings.processingMode === 'local' ? "col-span-3" : ""}>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Output Directory</label>
             <input
               type="text"

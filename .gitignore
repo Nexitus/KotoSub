@@ -43,3 +43,8 @@ tests/
 *.mkv
 *.avi
 *.mov
+
+# AI Models & Dependencies
+models/
+node_modules/
+.npm/

@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { AppSettings, SubtitleConfig, ProcessingStep } from '../types';
-import { LANGUAGES, FONTS, POSITIONS, COLORS, ICONS } from '../constants';
+import { SOURCE_LANGUAGES, TARGET_LANGUAGES, FONTS, POSITIONS, COLORS, ICONS } from '../constants';
 import ProgressBar from './ProgressBar';
 import Card from './Card';
 import { api } from '../services/api';
@@ -100,7 +100,7 @@ const Translator: React.FC<TranslatorProps> = ({
                 value={config.sourceLang}
                 onChange={(e) => setConfig({ ...config, sourceLang: e.target.value })}
               >
-                {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                {SOURCE_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
               </select>
             </div>
             <div>
@@ -110,7 +110,7 @@ const Translator: React.FC<TranslatorProps> = ({
                 value={config.targetLang}
                 onChange={(e) => setConfig({ ...config, targetLang: e.target.value })}
               >
-                {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                {TARGET_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
               </select>
             </div>
           </div>

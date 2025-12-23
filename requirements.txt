@@ -1,3 +1,4 @@
+numpy<2.0.0
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.5.0
@@ -12,6 +13,14 @@ pyannote.audio==3.1.1
 torch>=2.1.0
 torchaudio>=2.1.0
 pydub==0.25.1
+MarkupSafe~=2.0
 
 # Note: If you have whisperx installed, it may conflict with torch/torchaudio versions.
 # This app does NOT use whisperx. To resolve conflicts, run: pip uninstall whisperx
+
+faster-whisper>=0.10.0
+llama-cpp-python>=0.2.20
+
+# NVIDIA Libraries for Windows GPU support
+nvidia-cudnn-cu12>=9.0.0
+nvidia-cublas-cu12>=12.1.0

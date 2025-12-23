@@ -1,54 +1,61 @@
-# AI Video Translator
+# KotoSub - AI Video Subtitle Translator
 
-AI Video Translator is a streamlined tool that automates the process of generating high-quality subtitles for your videos. It leverages state-of-the-art AI models to extract audio, transcribe it with automatic language detection, and translate it with context-aware precision.
+KotoSub is a professional-grade video translation tool that automates the generation of localized subtitles. It features a modern React interface, a high-performance FastAPI backend, and support for both **Cloud-based** (OpenAI) and **Full Local** (CUDA GPU-accelerated) processing.
 
-## Key Features
+## ✨ Key Features
 
--   **Seamless Video Input**: Supports popular formats like MP4, MKV, AVI, and MOV.
--   **Automated Audio Extraction**: High-quality audio extraction powered by FFmpeg.
--   **AI-Powered Transcription**: Utilizes OpenAI Whisper for high-accuracy transcription with **Automatic Language Detection**.
--   **Advanced Translation**: Context-aware translation using GPT-4 with an integrated **AI Quality Verification Pass**.
--   **Speaker Diarization**: Automatically identifies and labels different speakers within the video.
--   **subtitle formats**: Outputs industry-standard **SRT** and **ASS** files with intelligent segment refinement.
--   **Dual Interface**: Access the tool via a simple **Gradio Web UI** or a robust **CLI** for batch processing.
+-   **Dual-Processing Modes**: Toggle between high-speed Cloud APIs and private, zero-cost Local GPU processing.
+-   **Local GPU Acceleration**: Powered by `faster-whisper` and `llama-cpp-python` with full CUDA support.
+-   **Intelligent Localization**: Context-aware translation that focuses on intended meaning rather than literal word-for-word conversion.
+-   **Automatic Language Detection**: Detects source languages automatically using the first 30 seconds of audio.
+-   **Speaker Diarization**: Identifies and labels multiple speakers using `pyannote-audio`.
+-   **GPU Audio Filters**: Integrated denoising (`afftdn`) and normalization (`loudnorm`) via FFmpeg.
+-   **Built-in Burning**: Burn subtitles directly into the video using **NVENC (HEVC)** hardware acceleration.
+-   **SRT & ASS Support**: Outputs industry-standard subtitle files.
 
-## Quick Start
+## 📋 Pre-requisites
 
-1.  **Installation**:
-    ```bash
-    git clone https://github.com/Nexitus/KotoSub.git
-    cd KotoSub
-    pip install -r requirements.txt
-    ```
+To run KotoSub, you need the following installed on your system:
 
-2.  **Prerequisites**:
-    -   Python 3.10+
-    -   [FFmpeg](https://ffmpeg.org/) installed and added to your system PATH.
-    -   An OpenAI API Key.
+1.  **Python 3.10+**
+2.  **FFmpeg**: Must be in your system PATH.
+3.  **NVIDIA GPU + CUDA**: Required for "Local" mode. Recommended: 8GB+ VRAM.
+4.  **Hugging Face Token**: Required for Speaker Diarization and downloading local models.
+5.  **OpenAI API Key**: Required for "Cloud" mode.
 
-3.  **Configuration**:
-    Create a `.env` file in the root directory:
-    ```env
-    OPENAI_API_KEY=your_api_key_here
-    ```
+## 🚀 Quick Start
 
-4.  **Launch the App**:
-    ```bash
-    python ui/gradio_app.py
-    ```
+### 1. Installation
+```bash
+git clone https://github.com/Nexitus/KotoSub.git
+cd KotoSub
+pip install -r requirements.txt
+```
 
-## Language Support
+### 2. Startup
+KotoSub handles both the frontend and backend with a single command:
+```bash
+python run.py
+```
+This will automatically:
+- Check for FFmpeg/CUDA dependencies.
+- Build the React frontend (if needed).
+- Start the FastAPI server on `http://localhost:8000`.
 
-The application supports over **120 languages** for transcription and translation, including:
--   English, Chinese (Mandarin/Cantonese), Spanish, French, German, Japanese, Korean, Portuguese, Russian, and many more.
+## 🌍 Language Support
 
-## LLM Supported
+KotoSub supports transcription from **over 30 source languages** (expandable) and translation into localized English:
+- **East Asian**: Mandarin, Japanese, Korean, Taiwanese.
+- **European**: Spanish, French, German, Portuguese, Italian, Dutch, etc.
+- **Eastern European**: Russian, Polish, Ukrainian, Czech, Romanian, etc.
 
--   **Transcription**: [OpenAI Whisper](https://openai.com/research/whisper) (`whisper-1`)
--   **Translation & QA**: [OpenAI GPT-4](https://openai.com/gpt-4) (`gpt-4-turbo-preview`)
+## 🛠️ Configuration
+Settings are managed directly through the web UI and persisted in your browser's local storage. This includes:
+- API Keys / Base URLs.
+- Model selection (Whisper-large-v3, Mistral, Llama 3, etc.).
+- Output directory preferences.
 
 ---
 
 ## Architecture
-
-The application follows a modular, service-oriented architecture, ensuring clear separation between audio processing, AI transcription, LLM translation, and the user interface.
+KotoSub uses a modular Python backend for heavy AI lifting and a Vite+React frontend for a sleek, responsive user experience. Communication is handled via NDJSON streams for real-time progress updates.

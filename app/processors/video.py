@@ -72,51 +72,59 @@ class VideoProcessor:
         except (ffmpeg.Error, KeyError, ValueError):
             return 0.0
 
-    def burn_subtitles(self, video_path: str, subtitles_path: str, output_path: str, font: str = "Arial", font_size: int = 24, position: str = "Bottom Center", shadow: float = 1.0, outline: float = 1.0) -> str:
+    def burn_subtitles(self, video_path: str, subtitles_path: str, output_path: str, 
+                       font: str = "Arial", font_size: int = 24, position: str = "Bottom Center", 
+                       shadow: float = 1.0, outline: float = 1.0, use_gpu: bool = False) -> str:
         """
         Re-encodes the video with burnt-in subtitles.
+        If use_gpu is True, attempts to use NVENC (HEVC). Falls back to libx264 (CPU) on failure.
         """
-        try:
-            # Map friendly position names to ASS alignment values
-            # 1=Left/Bot, 2=Center/Bot, 3=Right/Bot, 5=Top/Left, 6=Top/Center, 7=Top/Right
-            # 9=Left/Mid, 10=Center/Mid, 11=Right/Mid
-            align_map = {
-                "Bottom Left": 1,
-                "Bottom Center": 2,
-                "Bottom Right": 3,
-                "Top Left": 7, # ASS 7 is top-left
-                "Top Center": 6, 
-                "Top Right": 9, # Wait, ASS alignment is numpad based. 7=TopLeft, 8=TopCenter, 9=TopRight.
-                "Center": 5
-            }
-            # Correcting alignment based on ASS spec (Numpad)
-            # 1: Bottom Left, 2: Bottom Center, 3: Bottom Right
-            # 4: Left Center, 5: Center, 6: Right Center
-            # 7: Top Left, 8: Top Center, 9: Top Right
-            
-            # Using specific overrides map
-            numpad_align = {
-                "Bottom Left": 1, "Bottom Center": 2, "Bottom Right": 3,
-                "Left Center": 4, "Center": 5, "Right Center": 6,
-                "Top Left": 7, "Top Center": 8, "Top Right": 9
-            }
-            
-            alignment = numpad_align.get(position, 2)
-            
-            # Build force_style string
-            # Warning: Windows paths in ffmpeg filter require escaping.
-            # It's safer to use forward slashes for the path in the filter string.
-            subs_path_safe = subtitles_path.replace("\\", "/").replace(":", "\\:")
+        # Map friendly position names to ASS alignment values
+        numpad_align = {
+            "Bottom Left": 1, "Bottom Center": 2, "Bottom Right": 3,
+            "Left Center": 4, "Center": 5, "Right Center": 6,
+            "Top Left": 7, "Top Center": 8, "Top Right": 9
+        }
+        
+        alignment = numpad_align.get(position, 2)
+        
+        # Build force_style string
+        # Warning: Windows paths in ffmpeg filter require escaping.
+        # It's safer to use forward slashes for the path in the filter string.
+        subs_path_safe = subtitles_path.replace("\\", "/").replace(":", "\\:")
 
-            style = f"FontName={font},FontSize={font_size},Alignment={alignment},Outline={outline},Shadow={shadow}"
-
+        style = f"FontName={font},FontSize={font_size},Alignment={alignment},Outline={outline},Shadow={shadow}"
+        
+        def run_ffmpeg(vcodec, preset=None):
+            stream = ffmpeg.input(video_path)
+            kwargs = {
+                'vf': f"subtitles='{subs_path_safe}':force_style='{style}'",
+                'vcodec': vcodec,
+                'acodec': 'aac'
+            }
+            if preset:
+                kwargs['preset'] = preset
+                
             (
-                ffmpeg
-                .input(video_path)
-                .output(output_path, vf=f"subtitles='{subs_path_safe}':force_style='{style}'", vcodec='libx264', acodec='aac')
+                stream
+                .output(output_path, **kwargs)
                 .run(overwrite_output=True, quiet=True)
             )
+
+        try:
+            if use_gpu:
+                try:
+                    print("[Video] Attempting encoding with hevc_nvenc...")
+                    run_ffmpeg('hevc_nvenc', preset='p4') # p4 is medium preset for NVENC
+                    return output_path
+                except ffmpeg.Error as e:
+                    print(f"[Video] NVENC encoding failed: {e.stderr.decode() if e.stderr else str(e)}")
+                    print("[Video] Falling back to CPU encoding (libx264)...")
+            
+            # CPU fallback or default
+            run_ffmpeg('libx264')
             return output_path
+            
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode() if e.stderr else str(e)
             print(f"FFmpeg burn-in error: {error_msg}")

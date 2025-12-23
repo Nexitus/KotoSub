@@ -31,4 +31,11 @@ export interface AppSettings {
   whisperModel: string;
   llmModel: string;
   outputDir: string;
+  transcriptionProvider: string;
+  translationProvider: string;
+  localWhisperModel: string;
+  localLlmModel: string;
+  localLlmFile: string;
+  useGpuEncoding: boolean;
+  processingMode: 'cloud' | 'local';
 }

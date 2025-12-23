@@ -10,13 +10,40 @@ export const COLORS = {
   TEXT_LIGHT: '#54595F'
 };
 
-export const LANGUAGES = [
+export const SOURCE_LANGUAGES = [
   { label: 'Auto-detect', value: 'auto' },
   { label: 'English', value: 'en' },
-  { label: 'French (Canadian)', value: 'fr' },
+  { label: 'Japanese', value: 'ja' },
+  { label: 'Korean', value: 'ko' },
+  { label: 'Mandarin (Chinese)', value: 'zh' },
+  { label: 'Taiwanese', value: 'zh' }, // Mapping to zh as Whisper handles it generally
   { label: 'Spanish', value: 'es' },
-  { label: 'Mandarin', value: 'zh' },
-  { label: 'Punjabi', value: 'pa' }
+  { label: 'Portuguese', value: 'pt' },
+  { label: 'French', value: 'fr' },
+  { label: 'German', value: 'de' },
+  { label: 'Italian', value: 'it' },
+  { label: 'Dutch', value: 'nl' },
+  { label: 'Russian', value: 'ru' },
+  { label: 'Polish', value: 'pl' },
+  { label: 'Ukrainian', value: 'uk' },
+  { label: 'Czech', value: 'cs' },
+  { label: 'Slovak', value: 'sk' },
+  { label: 'Hungarian', value: 'hu' },
+  { label: 'Romanian', value: 'ro' },
+  { label: 'Bulgarian', value: 'bg' },
+  { label: 'Croatian', value: 'hr' },
+  { label: 'Serbian', value: 'sr' },
+  { label: 'Slovenian', value: 'sl' },
+  { label: 'Greek', value: 'el' },
+  { label: 'Turkish', value: 'tr' },
+  { label: 'Swedish', value: 'sv' },
+  { label: 'Danish', value: 'da' },
+  { label: 'Norwegian', value: 'no' },
+  { label: 'Finnish', value: 'fi' },
+];
+
+export const TARGET_LANGUAGES = [
+  { label: 'English', value: 'en' }
 ];
 
 export const FONTS = [
@@ -52,3 +79,36 @@ export const ICONS = {
     </svg>
   )
 };
+
+export const LOCAL_LLM_MODELS = [
+  {
+    label: 'Mistral 7B v0.2 (Balanced)',
+    repo: 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF',
+    file: 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
+  },
+  {
+    label: 'Dolphin 2.8 Mistral (Uncensored)',
+    repo: 'mradermacher/dolphin-2.8-mistral-7b-v02-GGUF',
+    file: 'dolphin-2.8-mistral-7b-v02.Q4_K_M.gguf'
+  },
+  {
+    label: 'Noromaid 7B v0.4 (Creative/NSFW)',
+    repo: 'NeverSleep/Noromaid-7B-0.4-DPO-GGUF',
+    file: 'Noromaid-7B-0.4-DPO.Q4_K_M.gguf'
+  },
+  {
+    label: 'OpenHermes 2.5 (High Quality/Low Filter)',
+    repo: 'TheBloke/OpenHermes-2.5-Mistral-7B-GGUF',
+    file: 'openhermes-2.5-mistral-7b.Q4_K_M.gguf'
+  },
+  {
+    label: 'Gemma 2 9B (Google/Fast)',
+    repo: 'bartowski/gemma-2-9b-it-GGUF',
+    file: 'gemma-2-9b-it-Q4_K_M.gguf'
+  },
+  {
+    label: 'Llama 3 8B (Meta/Strong)',
+    repo: 'bartowski/Meta-Llama-3-8B-Instruct-GGUF',
+    file: 'Meta-Llama-3-8B-Instruct-Q4_K_M.gguf'
+  }
+];

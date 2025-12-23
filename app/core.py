@@ -17,12 +17,16 @@ class VideoTranslatorApp:
     def process(self, video_path: str, source_lang: str = None, target_lang: str = "en", 
                 openai_api_key: str = None, openai_base_url: str = None, 
                 whisper_model: str = None, llm_model: str = None,
+                local_llm_file: str = None,
+                transcription_provider: str = "openai",
+                translation_provider: str = "openai",
                 output_dir: str = None,
                 use_diarization: bool = True,
                 hf_token: str = None,
                 use_quality_check: bool = True,
                 burn_subtitles: bool = False,
                 burn_options: Dict[str, Any] = None,
+                use_gpu_encoding: bool = False,
                 progress_callback=None) -> Dict[str, Any]:
         """
         Orchestrates the entire translation process.
@@ -31,12 +35,15 @@ class VideoTranslatorApp:
         transcription_service = TranscriptionService(
             api_key=openai_api_key, 
             base_url=openai_base_url,
-            model=whisper_model
+            model=whisper_model,
+            use_local=(transcription_provider == "local")
         )
         translation_service = TranslationService(
             api_key=openai_api_key, 
             base_url=openai_base_url,
-            model=llm_model
+            model=llm_model,
+            local_file=local_llm_file,
+            use_local=(translation_provider == "local")
         )
         
         # Initialize Diarization with provided token
@@ -108,7 +115,8 @@ class VideoTranslatorApp:
                     font_size=burn_opts.get("font_size", 24),
                     position=burn_opts.get("position", "Bottom Center"),
                     shadow=burn_opts.get("shadow", 1.0),
-                    outline=burn_opts.get("outline", 1.0)
+                    outline=burn_opts.get("outline", 1.0),
+                    use_gpu=use_gpu_encoding
                 )
             
             if progress_callback: progress_callback(1.0, "Done!")
