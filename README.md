@@ -6,9 +6,12 @@ KotoSub is a professional-grade video translation tool that automates the genera
 
 -   **Dual-Processing Modes**: Toggle between high-speed Cloud APIs and private, zero-cost Local GPU processing.
 -   **Local GPU Acceleration**: Powered by `faster-whisper` and `llama-cpp-python` with full CUDA support.
+-   **Parallel Processing Pipeline**: Concurrent translation and quality checking for significantly faster processing.
 -   **Intelligent Localization**: Context-aware translation that focuses on intended meaning rather than literal word-for-word conversion.
+-   **Readability Refinement**: Automatically splits long or fast subtitle segments for optimal viewing comfort.
 -   **Automatic Language Detection**: Detects source languages automatically using the first 30 seconds of audio.
 -   **Speaker Diarization**: Identifies and labels multiple speakers using `pyannote-audio`.
+-   **Robust Error Recovery**: Built-in exponential backoff for API calls to handle rate limits and transient failures.
 -   **GPU Audio Filters**: Integrated denoising (`afftdn`) and normalization (`loudnorm`) via FFmpeg.
 -   **Built-in Burning**: Burn subtitles directly into the video using **NVENC (HEVC)** hardware acceleration.
 -   **SRT & ASS Support**: Outputs industry-standard subtitle files.
@@ -20,27 +23,27 @@ To run KotoSub, you need the following installed on your system:
 1.  **Python 3.10+**
 2.  **FFmpeg**: Must be in your system PATH.
 3.  **NVIDIA GPU + CUDA**: Required for "Local" mode. Recommended: 8GB+ VRAM.
-4.  **Hugging Face Token**: Required for Speaker Diarization and downloading local models.
-5.  **OpenAI API Key**: Required for "Cloud" mode.
+4.  **NVIDIA Container Toolkit**: Required if you wish to run in Docker with GPU acceleration.
+5.  **Hugging Face Token**: Required for Speaker Diarization and downloading local models.
+6.  **OpenAI API Key**: Required for "Cloud" mode.
 
 ## 🚀 Quick Start
 
-### 1. Installation
+### 1. Manual Installation
 ```bash
 git clone https://github.com/Nexitus/KotoSub.git
 cd KotoSub
 pip install -r requirements.txt
-```
-
-### 2. Startup
-KotoSub handles both the frontend and backend with a single command:
-```bash
 python run.py
 ```
-This will automatically:
-- Check for FFmpeg/CUDA dependencies.
-- Build the React frontend (if needed).
-- Start the FastAPI server on `http://localhost:8000`.
+
+### 2. Docker Deployment (Recommended)
+KotoSub is fully containerized for easy deployment. Ensure your Docker environment supports NVIDIA GPUs.
+```bash
+# Build and start the container
+docker-compose up --build
+```
+This starts the application at `http://localhost:8000` with all dependencies (FFmpeg, CUDA, Python) pre-configured.
 
 ## 🌍 Language Support
 
