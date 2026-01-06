@@ -82,9 +82,9 @@ export const ICONS = {
 
 export const LOCAL_LLM_MODELS = [
   {
-    label: 'Mistral 7B v0.2 (Balanced)',
-    repo: 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF',
-    file: 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
+    label: 'Qwen 3 8B (Strong/Chinese-Native)',
+    repo: 'Qwen/Qwen3-8B-GGUF',
+    file: 'Qwen3-8B-Q4_K_M.gguf'
   },
   {
     label: 'Dolphin 2.8 Mistral (Uncensored)',
@@ -94,7 +94,7 @@ export const LOCAL_LLM_MODELS = [
   {
     label: 'Noromaid 7B v0.4 (Creative/NSFW)',
     repo: 'NeverSleep/Noromaid-7B-0.4-DPO-GGUF',
-    file: 'Noromaid-7B-0.4-DPO.Q4_K_M.gguf'
+    file: 'Noromaid-7B-0.4-DPO.q4_k_m.gguf'
   },
   {
     label: 'OpenHermes 2.5 (High Quality/Low Filter)',
@@ -105,10 +105,10 @@ export const LOCAL_LLM_MODELS = [
     label: 'Gemma 2 9B (Google/Fast)',
     repo: 'bartowski/gemma-2-9b-it-GGUF',
     file: 'gemma-2-9b-it-Q4_K_M.gguf'
-  },
-  {
-    label: 'Llama 3 8B (Meta/Strong)',
-    repo: 'bartowski/Meta-Llama-3-8B-Instruct-GGUF',
-    file: 'Meta-Llama-3-8B-Instruct-Q4_K_M.gguf'
   }
+];
+export const SUBTITLE_FORMATS = [
+  { label: 'SRT (Standard)', value: 'srt' },
+  { label: 'ASS (Advanced Stylized)', value: 'ass' },
+  { label: 'VTT (Web Player Compatible)', value: 'vtt' }
 ];

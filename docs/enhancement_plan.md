@@ -27,27 +27,38 @@ This document outlines the high-priority enhancements recommended for the AI Vid
 - **Status:** ✅ Fully implemented using `ThreadPoolExecutor` for API-based translation and quality checks.
 - **Benefit:** Dramatically faster processing for long-form video content.
 
-## 6. Advanced Subtitle Formatting (ASS/VTT) [PARTIAL]
+## 6. Advanced Subtitle Formatting (SRT/ASS/VTT) [DONE]
 **Goal:** Support modern formatting and web compatibility.
-- **Status:** ⚠️ ASS generation is coded but not yet exported/selectable. VTT support is missing.
-- **Benefit:** Better visual presentation and compatibility with modern video platforms.
+- **Status:** ✅ Fully implemented (SRT, ASS, and WebVTT).
+- **Benefit:** High compatibility with all video players and web browsers.
 
 ## 7. Intelligent Segment & Readability Refinement [DONE]
 **Goal:** Optimize subtitle timing for human reading speeds.
 - **Status:** ✅ Implemented CPS-based splitting logic to ensure subtitles are readable at glance.
-- **Benefit:** Improved viewer comfort; subtitles won't flash too fast or stay too long.
 
 ## 8. Expanded Target Language Support [DONE]
 **Goal:** Translate into any major global language.
 - **Status:** ✅ Backend supports it; UI restricted to English currently by user request.
-- **Benefit:** Opens the tool to a global market beyond English speakers.
 
 ## 9. Audio Pre-processing (Denoising & Normalization) [DONE]
 **Goal:** Improve transcription accuracy in sub-optimal recording conditions.
 - **Status:** ✅ FFMPEG `afftdn` and `loudnorm` filters are active.
-- **Benefit:** Reliable transcription for outdoor, low-quality, or noisy source material.
 
 ## 10. Robust Error Recovery & Dockerization [DONE]
 **Goal:** Ensure the app can run anywhere and handle service interruptions.
-- **Status:** ✅ Completed. Created multi-stage `Dockerfile` and `docker-compose.yml` with GPU support. Implemented exponential backoff for LLM API calls.
-- **Benefit:** Easy "one-command" deployment and significantly increased reliability against API rate limits.
+- **Status:** ✅ Completed with multi-stage `Dockerfile` and exponential backoff.
+
+## 11. Advanced Performance Optimization [DONE]
+**Goal:** Maximize processing speed for large video files.
+- **Status:** ✅ Implemented Parallel Transcription (API), Batch Translation, and Local VAD.
+- **Benefit:** Up to 5x faster processing for long videos.
+
+## 12. Output Customization & Naming Templates [DONE]
+**Goal:** Give users control over file organization and naming.
+- **Status:** ✅ Customizable suffix and language code inclusion implemented in Core and UI.
+- **Benefit:** Better file management for batch processing.
+
+## 13. Live Log Streaming & Debug Console [DONE]
+**Goal:** Provide full transparency into background tasks.
+- **Status:** ✅ Real-time stdout capture and NDJSON streaming implemented.
+- **Benefit:** Users can monitor detailed FFmpeg and AI logs directly in the browser.

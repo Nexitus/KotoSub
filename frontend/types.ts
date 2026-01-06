@@ -15,6 +15,7 @@ export interface SubtitleConfig {
   position: string;
   shadow: number;
   outline: number;
+  subtitleFormat: 'srt' | 'ass' | 'vtt';
 }
 
 export interface ProcessingStep {
@@ -38,4 +39,6 @@ export interface AppSettings {
   localLlmFile: string;
   useGpuEncoding: boolean;
   processingMode: 'cloud' | 'local';
+  outputSuffix: string;
+  includeLanguageInName: boolean;
 }

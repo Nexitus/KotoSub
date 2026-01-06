@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { AppSettings, SubtitleConfig, ProcessingStep } from '../types';
-import { SOURCE_LANGUAGES, TARGET_LANGUAGES, FONTS, POSITIONS, COLORS, ICONS } from '../constants';
+import { SOURCE_LANGUAGES, TARGET_LANGUAGES, SUBTITLE_FORMATS, FONTS, POSITIONS, COLORS, ICONS } from '../constants';
 import ProgressBar from './ProgressBar';
 import Card from './Card';
 import { api } from '../services/api';
@@ -10,6 +10,7 @@ interface TranslatorProps {
   settings: AppSettings;
   isProcessing: boolean;
   steps: ProcessingStep[];
+  logs: string[];
   result: any;
   error: string | null;
   onStart: (file: File, config: SubtitleConfig) => void;
@@ -19,23 +20,67 @@ const Translator: React.FC<TranslatorProps> = ({
   settings,
   isProcessing,
   steps,
+  logs,
   result,
   error,
   onStart
 }) => {
+  const CONFIG_KEY = 'kotosub_translator_config_v1';
+
   const [file, setFile] = useState<File | null>(null);
-  const [config, setConfig] = useState<SubtitleConfig>({
-    sourceLang: 'auto',
-    targetLang: 'en',
-    enableDiarization: false,
-    qualityVerification: true,
-    burnSubtitles: true,
-    font: 'Helvetica',
-    fontSize: 14,
-    position: 'Bottom Center',
-    shadow: 1,
-    outline: 1
+  const [config, setConfig] = useState<SubtitleConfig>(() => {
+    const saved = localStorage.getItem(CONFIG_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.warn('Failed to parse translator config from localStorage', e);
+      }
+    }
+    return {
+      sourceLang: 'auto',
+      targetLang: 'en',
+      enableDiarization: false,
+      qualityVerification: true,
+      burnSubtitles: true,
+      font: 'Helvetica',
+      fontSize: 14,
+      position: 'Bottom Center',
+      shadow: 1,
+      outline: 1,
+      subtitleFormat: 'srt'
+    };
   });
+
+  // Save config to localStorage whenever it changes
+  React.useEffect(() => {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  }, [config]);
+
+  // Auto-scroll state for logs
+  const [autoScrollLogs, setAutoScrollLogs] = useState(true);
+  const logsContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Auto-scroll effect when logs update
+  React.useEffect(() => {
+    if (autoScrollLogs && logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
+  }, [logs, autoScrollLogs]);
+
+  // Handle manual scroll - pause auto-scroll if user scrolls up
+  const handleLogsScroll = () => {
+    if (logsContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
+      const isAtBottom = Math.abs(scrollHeight - scrollTop - clientHeight) < 10;
+
+      if (!isAtBottom && autoScrollLogs) {
+        setAutoScrollLogs(false);
+      } else if (isAtBottom && !autoScrollLogs) {
+        setAutoScrollLogs(true);
+      }
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -159,6 +204,24 @@ const Translator: React.FC<TranslatorProps> = ({
                 <span className="text-xs text-gray-400 italic">Re-encodes video (Slower)</span>
               </div>
             </label>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Subtitle Format</label>
+              <div className="flex gap-2">
+                {SUBTITLE_FORMATS.map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setConfig({ ...config, subtitleFormat: f.value as any })}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all ${config.subtitleFormat === f.value
+                      ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-sm'
+                      : 'bg-white border-gray-200 text-gray-400 hover:border-purple-100'
+                      }`}
+                  >
+                    {f.label.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
               <div>
@@ -304,12 +367,28 @@ const Translator: React.FC<TranslatorProps> = ({
         </Card>
 
         {isProcessing && (
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm animate-pulse">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Live Logs</h3>
-            <div className="font-mono text-[10px] text-gray-600 space-y-1">
-              <p>[INFO] Processing video with {settings.llmModel}...</p>
-              <p>[DEBUG] Configuration: {config.sourceLang} → {config.targetLang}</p>
-              <p>[INFO] Output directory: {settings.outputDir}</p>
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">Live Logs</h3>
+              {!autoScrollLogs && (
+                <button
+                  onClick={() => setAutoScrollLogs(true)}
+                  className="px-3 py-1 text-xs font-bold bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all"
+                >
+                  Resume Auto-Scroll
+                </button>
+              )}
+            </div>
+            <div
+              ref={logsContainerRef}
+              onScroll={handleLogsScroll}
+              className="font-mono text-[10px] text-gray-600 space-y-1 max-h-[348px] overflow-y-auto"
+            >
+              {logs.length > 0 ? (
+                logs.map((log, i) => <p key={i}>{log}</p>)
+              ) : (
+                <p className="italic opacity-50">Waiting for process logs...</p>
+              )}
             </div>
           </div>
         )}

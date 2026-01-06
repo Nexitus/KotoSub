@@ -32,10 +32,12 @@ const App: React.FC = () => {
       transcriptionProvider: 'openai',
       translationProvider: 'openai',
       localWhisperModel: 'medium',
-      localLlmModel: 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF',
-      localLlmFile: 'mistral-7b-instruct-v0.2.Q4_K_M.gguf',
+      localLlmModel: 'Qwen/Qwen3-8B-GGUF',
+      localLlmFile: 'Qwen3-8B-Q4_K_M.gguf',
       useGpuEncoding: false,
-      processingMode: 'cloud'
+      processingMode: 'cloud',
+      outputSuffix: '_translated',
+      includeLanguageInName: true
     };
   });
 
@@ -44,12 +46,14 @@ const App: React.FC = () => {
     let updated = false;
     const newSettings = { ...settings };
 
-    if (newSettings.localLlmModel === 'TheBloke/dolphin-2.8-mistral-7b-v02-GGUF') {
-      newSettings.localLlmModel = 'mradermacher/dolphin-2.8-mistral-7b-v02-GGUF';
+    if (newSettings.localLlmModel === 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF') {
+      newSettings.localLlmModel = 'Qwen/Qwen3-8B-GGUF';
+      newSettings.localLlmFile = 'Qwen3-8B-Q4_K_M.gguf';
       updated = true;
     }
-    if (newSettings.localLlmModel === 'TheBloke/Noromaid-7b-v0.4-GGUF') {
-      newSettings.localLlmModel = 'mradermacher/Noromaid-7b-v0.4-GGUF';
+    if (newSettings.localLlmModel === 'bartowski/Meta-Llama-3-8B-Instruct-GGUF') {
+      newSettings.localLlmModel = 'Qwen/Qwen3-8B-GGUF';
+      newSettings.localLlmFile = 'Qwen3-8B-Q4_K_M.gguf';
       updated = true;
     }
 
@@ -64,6 +68,7 @@ const App: React.FC = () => {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   const [steps, setSteps] = useState<ProcessingStep[]>([
     { id: '1', label: 'Video Analysis', progress: 0, status: 'idle' },
     { id: '2', label: 'Transcription', progress: 0, status: 'idle' },
@@ -103,6 +108,10 @@ const App: React.FC = () => {
       });
     }
 
+    if (event.step === 'log' && event.message) {
+      setLogs(prev => [...prev, event.message].slice(-100)); // Keep last 100 logs
+    }
+
     if (event.step === 'completed' && event.result) {
       setResult(event.result);
     }
@@ -115,6 +124,8 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setError(null);
     setResult(null);
+    // Don't clear logs - preserve them from previous runs for debugging
+    // setLogs([]);
     setSteps(prev => prev.map(s => ({ ...s, progress: 0, status: 'idle' })));
 
     try {
@@ -138,7 +149,10 @@ const App: React.FC = () => {
         updateStepsFromEvent
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
+      // Add error to logs so it persists
+      setLogs(prev => [...prev, `❌ ERROR: ${errorMessage}`]);
     } finally {
       setIsProcessing(false);
     }
@@ -154,6 +168,7 @@ const App: React.FC = () => {
             settings={settings}
             isProcessing={isProcessing}
             steps={steps}
+            logs={logs}
             result={result}
             error={error}
             onStart={startTranslation}

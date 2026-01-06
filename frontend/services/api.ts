@@ -14,7 +14,14 @@ export interface TranslatorConfig {
     baseUrl?: string;
     whisperModel?: string;
     llmModel?: string;
+    localLlmFile?: string;
     outputDir?: string;
+    transcriptionProvider?: string;
+    translationProvider?: string;
+    useGpuEncoding?: boolean;
+    subtitleFormat?: 'srt' | 'ass' | 'vtt';
+    outputSuffix?: string;
+    includeLanguageInName?: boolean;
 }
 
 export type ProcessingStatus = 'idle' | 'processing' | 'completed' | 'error';
@@ -90,5 +97,19 @@ export const api = {
             });
             throw error;
         }
+    },
+
+    /**
+     * Fetch available models from backend
+     */
+    getModels: async (): Promise<{
+        llm_models: Array<{ label: string; repo: string; file: string; installed: boolean }>;
+        whisper_models: Array<{ label: string; value: string; installed: boolean }>;
+    }> => {
+        const response = await fetch(`${API_BASE}/api/models`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch models');
+        }
+        return response.json();
     }
 };
