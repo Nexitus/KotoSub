@@ -1,56 +1,142 @@
 
 import os
-import sys
 from huggingface_hub import hf_hub_download
 from faster_whisper import WhisperModel
-import torch
 
-# Add current directory to path so we can import settings
-sys.path.append(os.getcwd())
-try:
-    from app.config import settings
-except ImportError:
-    # Fallback if config is not importable
-    class MockSettings:
-        MODELS_DIR = os.path.join(os.getcwd(), "models")
-    settings = MockSettings()
+from app.config import settings
 
 MODELS_DIR = settings.MODELS_DIR
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 LLM_MODELS = [
     {
-        "label": "Qwen 3 8B (Strong/Chinese-Native)",
-        "repo": "Qwen/Qwen3-8B-GGUF",
-        "file": "Qwen3-8B-Q4_K_M.gguf"
+        "label": "Sugoi 32B Ultra — Japanese→English Specialist (15 GB VRAM)",
+        "repo": "DharkNet3/Sugoi-32B-Ultra-IQ3_M-GGUF",
+        "file": "Sugoi-32B-Ultra-IQ3_M.gguf",
+        "recommended_for": ["ja"]
     },
     {
-        "label": "Dolphin 2.8 Mistral (Uncensored)",
-        "repo": "mradermacher/dolphin-2.8-mistral-7b-v02-GGUF",
-        "file": "dolphin-2.8-mistral-7b-v02.Q4_K_M.gguf"
+        "label": "Translate Gemma 4 Sub E4B — Subtitle Specialist, Default (6 GB VRAM)",
+        "repo": "17slever17/translate-gemma-4-sub-e4b-GGUF",
+        "file": "translate_gemma4_sub-E4B-Q4_K_XL.gguf",
+        "recommended_for": ["*"]
     },
     {
-        "label": "Noromaid 7B v0.4 (Creative/NSFW)",
-        "repo": "NeverSleep/Noromaid-7B-0.4-DPO-GGUF",
-        "file": "Noromaid-7B-0.4-DPO.q4_k_m.gguf"
+        "label": "Gemma 4 12B QAT — Multilingual Mid-Tier (9 GB VRAM)",
+        "repo": "unsloth/gemma-4-12B-it-qat-GGUF",
+        "file": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf"
     },
     {
-        "label": "OpenHermes 2.5 (High Quality/Low Filter)",
-        "repo": "TheBloke/OpenHermes-2.5-Mistral-7B-GGUF",
-        "file": "openhermes-2.5-mistral-7b.Q4_K_M.gguf"
+        "label": "Qwen 3.5 9B — Great Quality / Low VRAM (6 GB VRAM)",
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+        "file": "Qwen3.5-9B-Q4_K_M.gguf"
     },
     {
-        "label": "Gemma 2 9B (Google/Fast)",
-        "repo": "bartowski/gemma-2-9b-it-GGUF",
-        "file": "gemma-2-9b-it-Q4_K_M.gguf"
-    }
+        "label": "Qwen 3.5 4B — Speed Priority (2.5 GB VRAM)",
+        "repo": "unsloth/Qwen3.5-4B-GGUF",
+        "file": "Qwen3.5-4B-Q4_K_M.gguf"
+    },
+    {
+        "label": "GLM-4 9B — Chinese Specialist (5.5 GB VRAM)",
+        "repo": "bartowski/glm-4-9b-chat-GGUF",
+        "file": "glm-4-9b-chat-Q4_K_M.gguf",
+        "recommended_for": ["zh"]
+    },
 ]
 
-WHISPER_MODELS = ["medium", "large-v3", "large-v3-turbo"]
+# Recommended LLM per source language ('*' is the fallback for all others)
+RECOMMENDED_BY_LANG = {
+    "ja": "DharkNet3/Sugoi-32B-Ultra-IQ3_M-GGUF",
+    "zh": "bartowski/glm-4-9b-chat-GGUF",
+    "*": "17slever17/translate-gemma-4-sub-e4b-GGUF",
+}
+
+# Optional quality-estimation model for the targeted QA pass is downloaded
+# by comet itself on first use (gated: accept the license on HuggingFace).
+
+WHISPER_MODELS = ["medium", "large-v3", "large-v3-turbo", "distil-whisper/distil-large-v3.5-ct2"]
+
+# Alternative transcription engine (optional dependency: `pip install qwen-asr`).
+# Whisper stays the default; this is offered in the same transcription selector.
+QWEN_ASR = {
+    "label": "Qwen3-ASR 1.7B — Alternative (Word Timestamps, ~5 GB total)",
+    "value": "Qwen/Qwen3-ASR-1.7B",
+    "asr_repo": "Qwen/Qwen3-ASR-1.7B",
+    "aligner_repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+}
+QWEN_ASR_CACHES = ("models--Qwen--Qwen3-ASR-1.7B", "models--Qwen--Qwen3-ForcedAligner-0.6B")
+
+
+def _hf_cache_dir():
+    from huggingface_hub.constants import HF_HUB_CACHE
+    return HF_HUB_CACHE
+
+
+def qwen_asr_installed() -> bool:
+    """Installed when both repos have a downloaded snapshot in the HF cache
+    (qwen-asr loads from_pretrained directly from the hub cache; on first use
+    it downloads on demand, same behavior as faster-whisper's cache)."""
+    try:
+        cache_dir = _hf_cache_dir()
+    except Exception:
+        return False
+    for cache_name in QWEN_ASR_CACHES:
+        snapshots = os.path.join(cache_dir, cache_name, "snapshots")
+        if not (os.path.isdir(snapshots) and _has_snapshot(snapshots)):
+            return False
+    return True
+
+
+def _has_snapshot(snapshots: str) -> bool:
+    try:
+        return any(os.scandir(snapshots))
+    except OSError:
+        return False
+
+
+def download_qwen_asr_model(force=False):
+    """Downloads the Qwen3-ASR model and its ForcedAligner into the HF cache."""
+    if qwen_asr_installed() and not force:
+        print(f"[Qwen-ASR] {QWEN_ASR['label']} already exists. Skipping.")
+        return True
+    from huggingface_hub import snapshot_download
+    ok = True
+    for repo in (QWEN_ASR["asr_repo"], QWEN_ASR["aligner_repo"]):
+        try:
+            print(f"[Qwen-ASR] Downloading {repo} ...")
+            snapshot_download(repo_id=repo, token=settings.HF_TOKEN,
+                              force_download=force)
+            print(f"[Qwen-ASR] Downloaded {repo}")
+        except Exception as e:
+            print(f"[Qwen-ASR] Error downloading {repo}: {e}")
+            ok = False
+    return ok
+
+
+def remove_qwen_asr_model():
+    """Removes the Qwen3-ASR model + aligner from the HF cache."""
+    import shutil
+    ok = True
+    try:
+        cache_dir = _hf_cache_dir()
+    except Exception:
+        print("[Qwen-ASR] Could not resolve the HuggingFace cache directory.")
+        return False
+    for cache_name in QWEN_ASR_CACHES:
+        repo_dir = os.path.join(cache_dir, cache_name)
+        if os.path.isdir(repo_dir):
+            try:
+                shutil.rmtree(repo_dir)
+                print(f"[Qwen-ASR] Removed {cache_name}")
+            except Exception as e:
+                print(f"[Qwen-ASR] Error removing {cache_name}: {e}")
+                ok = False
+        else:
+            print(f"[Qwen-ASR] {cache_name} is not installed.")
+    return ok
 
 def download_llm_model(model, force=False):
     """Downloads a specific LLM model."""
-    hf_token = os.getenv("HF_TOKEN")
     model_path = os.path.join(MODELS_DIR, model["file"])
     
     if os.path.exists(model_path) and not force:
@@ -63,7 +149,7 @@ def download_llm_model(model, force=False):
             repo_id=model["repo"],
             filename=model["file"],
             local_dir=MODELS_DIR,
-            token=hf_token,
+            token=settings.HF_TOKEN,
             force_download=force
         )
         print(f"[LLM] Successfully downloaded {model['label']}")
@@ -88,21 +174,13 @@ def remove_llm_model(model):
 def download_whisper_model(model_name, force=False):
     """Downloads a specific Whisper model."""
     print(f"[Whisper] Processing {model_name} model...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    compute_type = "float16" if device == "cuda" else "int8"
     
-    # Whisper models are directories in the cache/models dir.
-    # Faster-whisper uses a cache. We can try to force download by clearing specific cache if strictly needed,
-    # but practically re-instantiating with download_root handles verification.
-    
+    # faster-whisper verifies/downloads via its cache on instantiation;
+    # load on CPU so this stays safe on machines without a GPU.
     try:
-        # If force is true, we might want to manually clean up, but faster-whisper doesn't strictly support 'force_download' param in init.
-        # However, we can use download_model from faster_whisper to be more explicit (if available) or just rely on its check.
-        # For simplicity in this context, 'force' might just mean "try to download again over top".
-        
         WhisperModel(
             model_name, 
-            device="cpu", # Use CPU for download to be safe
+            device="cpu",
             compute_type="int8", 
             download_root=MODELS_DIR
         )
@@ -114,28 +192,16 @@ def download_whisper_model(model_name, force=False):
 
 def remove_whisper_model(model_name):
     """Removes a specific Whisper model directory."""
-    # This is tricky because faster-whisper/CTranslate2 names folders with hashes.
-    # We might have to scan MODELS_DIR for folders usually named 'models--systran--faster-whisper-...'
-    # For now, let's just warn that manual removal might be safest or look for standard patterns if we assume standard HF layout.
-    # Actually, faster-whisper with download_root=MODELS_DIR typically creates:
-    # MODELS_DIR/models--systran--faster-whisper-{size}/...
-    
-    # Simple heuristic:
     import shutil
     target_dir = None
-    # Common mapped names
-    if model_name == "large-v3-turbo":
-       possible_name = "models--deepdml--faster-whisper-large-v3-turbo-ct2" # Example, varies by repo source used by lib
-       # faster-whisper default is Systran
-    
-    # To implement robustly we would need to know exact folder name. 
-    # For now, we will scan for the model size in the folder name.
-    
+
+    cache_name = model_name.replace("/", "--")
+
     for item in os.listdir(MODELS_DIR):
-        if "faster-whisper" in item and model_name in item and os.path.isdir(os.path.join(MODELS_DIR, item)):
+        if cache_name in item and os.path.isdir(os.path.join(MODELS_DIR, item)):
              target_dir = os.path.join(MODELS_DIR, item)
              break
-    
+
     if target_dir:
         try:
             shutil.rmtree(target_dir)
@@ -159,12 +225,6 @@ def download_whisper():
     print("\n--- Downloading Whisper Models ---")
     for model_name in WHISPER_MODELS:
         download_whisper_model(model_name)
-
-def get_llm_models():
-    return LLM_MODELS
-
-def get_whisper_models():
-    return WHISPER_MODELS
 
 if __name__ == "__main__":
     download_llms()

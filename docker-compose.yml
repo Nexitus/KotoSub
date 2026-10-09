@@ -3,20 +3,28 @@ services:
     build: .
     image: kotosub:latest
     container_name: kotosub
+    init: true
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./models:/app/models
       - ./output:/app/output
-      - ./.env:/app/.env
+    env_file:
+      - path: .env
+        required: false
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [ gpu ]
+              capabilities: [gpu]
     restart: unless-stopped
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - HF_TOKEN=${HF_TOKEN}
+      MODELS_DIR: /app/models
+      OUTPUT_DIR: /app/output
+      TEMP_DIR: /app/temp
+      TMPDIR: /app/temp
+      LIVE_REMUX_DIR: /app/temp/remux
+      HF_HOME: /app/models/huggingface
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video

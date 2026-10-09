@@ -1,50 +1,55 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { ViewType } from '../types';
-import { COLORS, ICONS } from '../constants';
+import { ICONS } from '../constants';
+import TabGroup, { TabOption } from './ui/TabGroup';
 
 interface HeaderProps {
   activeView: ViewType;
   onViewChange: (view: ViewType) => void;
 }
 
+const NAV_OPTIONS: TabOption<ViewType>[] = [
+  { value: ViewType.TRANSLATOR, label: 'Translator', icon: <ICONS.Translate /> },
+  { value: ViewType.SETTINGS,   label: 'Settings',   icon: <ICONS.Settings /> },
+];
+
+const THEME_KEY = 'kotosub_theme';
+
 const Header: React.FC<HeaderProps> = ({ activeView, onViewChange }) => {
+  const [dark, setDark] = useState<boolean>(() =>
+    document.documentElement.classList.contains('dark')
+  );
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle('dark', next);
+    try {
+      localStorage.setItem(THEME_KEY, next ? 'dark' : 'light');
+    } catch { /* private mode */ }
+  };
+
   return (
-    <header className="bg-white border-b border-gray-100 shadow-sm">
-      <div className="container mx-auto px-6 py-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold mb-1" style={{ color: COLORS.PURPLE }}>
+    <header className="sticky top-0 z-30 bg-raised/85 backdrop-blur border-b border-edge">
+      <div className="container mx-auto px-4 sm:px-6 py-2 flex flex-col md:flex-row md:items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold text-brand tracking-tight">
             KotoSub
           </h1>
-          <p className="text-gray-500 font-medium">
-            AI-powered Transcription and Translation tool
-          </p>
+          <span className="hidden lg:block text-xs text-ink-faint">
+            AI subtitle translator
+          </span>
         </div>
-
-        <nav className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+        <div className="flex items-center gap-2">
+          <TabGroup options={NAV_OPTIONS} value={activeView} onChange={onViewChange} />
           <button
-            onClick={() => onViewChange(ViewType.TRANSLATOR)}
-            className={`flex items-center space-x-2 px-6 py-2 rounded-md font-semibold transition-all duration-200 ${activeView === ViewType.TRANSLATOR
-              ? 'bg-white shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-              }`}
-            style={activeView === ViewType.TRANSLATOR ? { color: COLORS.PURPLE } : {}}
+            onClick={toggleTheme}
+            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="p-2.5 rounded-lg text-ink-soft hover:text-ink hover:bg-edge/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
-            <ICONS.Translate />
-            <span>Translator</span>
+            {dark ? <ICONS.Sun /> : <ICONS.Moon />}
           </button>
-          <button
-            onClick={() => onViewChange(ViewType.SETTINGS)}
-            className={`flex items-center space-x-2 px-6 py-2 rounded-md font-semibold transition-all duration-200 ${activeView === ViewType.SETTINGS
-              ? 'bg-white shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-              }`}
-            style={activeView === ViewType.SETTINGS ? { color: COLORS.PURPLE } : {}}
-          >
-            <ICONS.Settings />
-            <span>Settings</span>
-          </button>
-        </nav>
+        </div>
       </div>
     </header>
   );

@@ -29,7 +29,10 @@ temp/
 output/
 tmp/
 user_config.json
-tests/
+# Unit tests ARE versioned (regression contracts, see
+# docs/TRANSCRIPTION_PIPELINE.md); only test artifacts stay out:
+tests/**
+!tests/*.py
 
 
 # IDEs

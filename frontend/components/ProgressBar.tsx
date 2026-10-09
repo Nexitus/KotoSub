@@ -1,30 +1,30 @@
-
 import React from 'react';
-import { COLORS } from '../constants';
 
 interface ProgressBarProps {
   progress: number;
   status: 'idle' | 'processing' | 'completed' | 'error';
+  thin?: boolean;
 }
 
-const ProgressBar: React.FC<ProgressBarProps> = ({ progress, status }) => {
-  const getFillColor = () => {
-    switch (status) {
-      case 'completed': return COLORS.GREEN;
-      case 'error': return '#D32F2F';
-      case 'processing': return COLORS.PURPLE;
-      default: return '#E0E0E0';
-    }
-  };
+const FILL_COLORS: Record<ProgressBarProps['status'], string> = {
+  completed: 'var(--success)',
+  error: 'var(--error)',
+  processing: 'var(--brand)',
+  idle: 'var(--edge-strong)',
+};
 
+const ProgressBar: React.FC<ProgressBarProps> = ({ progress, status, thin = false }) => {
   return (
-    <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden border border-gray-200">
-      <div 
-        className="h-full transition-all duration-500 ease-out"
-        style={{ 
-          width: `${progress}%`, 
-          backgroundColor: getFillColor() 
-        }}
+    <div
+      className={`w-full bg-edge/60 rounded-full overflow-hidden ${thin ? 'h-1.5' : 'h-2.5'}`}
+      role="progressbar"
+      aria-valuenow={progress}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className="h-full rounded-full transition-all duration-500 ease-out"
+        style={{ width: `${progress}%`, backgroundColor: FILL_COLORS[status] }}
       />
     </div>
   );

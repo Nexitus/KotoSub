@@ -1,5 +1,6 @@
 import os
 from typing import List, Dict, Any
+from app.config import settings
 try:
     from pyannote.audio import Pipeline
     import torch
@@ -9,13 +10,13 @@ except Exception as e:
 
 class DiarizationService:
     def __init__(self, auth_token: str = None):
-        self.auth_token = auth_token or os.getenv("HF_AUTH_TOKEN")
+        self.auth_token = auth_token or settings.HF_TOKEN
         self.pipeline = None
         if Pipeline and self.auth_token:
             try:
                 self.pipeline = Pipeline.from_pretrained(
-                    "pyannote/speaker-diarization-3.1",
-                    use_auth_token=self.auth_token
+                    "pyannote/speaker-diarization-community-1",
+                    token=self.auth_token
                 )
                 if torch.cuda.is_available():
                     self.pipeline.to(torch.device("cuda"))
@@ -28,7 +29,7 @@ class DiarizationService:
         Returns a list of {start, end, speaker_id}.
         """
         if not self.pipeline:
-            print("Diarization pipeline not initialized (check HF_AUTH_TOKEN).")
+            print("Diarization pipeline not initialized (missing pyannote or HF token).")
             return []
 
         diarization = self.pipeline(audio_path)

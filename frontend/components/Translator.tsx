@@ -1,10 +1,16 @@
-
-import React, { useState, useCallback } from 'react';
-import { AppSettings, SubtitleConfig, ProcessingStep } from '../types';
-import { SOURCE_LANGUAGES, TARGET_LANGUAGES, SUBTITLE_FORMATS, FONTS, POSITIONS, COLORS, ICONS } from '../constants';
-import ProgressBar from './ProgressBar';
-import Card from './Card';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AppSettings, SubtitleConfig, ProcessingStep, LiveStartResponse, LiveStatusResponse } from '../types';
+import { SOURCE_LANGUAGES, LOOKAHEAD_PRESETS, ICONS } from '../constants';
 import { api } from '../services/api';
+import StageCanvas, { StageMode } from './StageCanvas';
+import StepRail from './StepRail';
+import OptionsDrawer from './OptionsDrawer';
+import ResultsPanel from './ResultsPanel';
+import LogsConsole from './LogsConsole';
+import Card from './Card';
+import Banner from './ui/Banner';
+import FormLabel from './ui/FormLabel';
+import Select from './ui/Select';
 
 interface TranslatorProps {
   settings: AppSettings;
@@ -13,8 +19,30 @@ interface TranslatorProps {
   logs: string[];
   result: any;
   error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  liveSegment: { original: string; text: string; speaker: string | null } | null;
   onStart: (file: File, config: SubtitleConfig) => void;
+  onReset: () => void;
 }
+
+const CONFIG_KEY = 'kotosub_translator_config_v1';
+
+const formatTime = (sec: number) => {
+  if (!isFinite(sec)) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+};
+
+const describeError = (raw: string): string => {
+  const lower = raw.toLowerCase();
+  if (lower.includes('file not found')) return 'Video file not found. Check the path and try again.';
+  if (lower.includes('ffmpeg')) return 'FFmpeg is required but could not run. Check the backend installation.';
+  if (lower.includes('codec')) return 'The video codec is not supported for in-browser playback.';
+  if (lower.includes('permission denied') || lower.includes('access denied')) return 'Access to the video file was denied.';
+  return raw;
+};
 
 const Translator: React.FC<TranslatorProps> = ({
   settings,
@@ -23,379 +51,483 @@ const Translator: React.FC<TranslatorProps> = ({
   logs,
   result,
   error,
-  onStart
+  startedAt,
+  finishedAt,
+  liveSegment,
+  onStart,
+  onReset,
 }) => {
-  const CONFIG_KEY = 'kotosub_translator_config_v1';
-
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFileState] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [config, setConfig] = useState<SubtitleConfig>(() => {
     const saved = localStorage.getItem(CONFIG_KEY);
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.warn('Failed to parse translator config from localStorage', e);
-      }
+      try { return JSON.parse(saved); } catch (e) { console.warn('Failed to parse translator config', e); }
     }
     return {
-      sourceLang: 'auto',
-      targetLang: 'en',
-      enableDiarization: false,
-      qualityVerification: true,
-      burnSubtitles: true,
-      font: 'Helvetica',
-      fontSize: 14,
-      position: 'Bottom Center',
-      shadow: 1,
-      outline: 1,
-      subtitleFormat: 'srt'
+      sourceLang: 'auto', targetLang: 'en',
+      enableDiarization: false, qualityVerification: true,
+      burnSubtitles: true, font: 'Helvetica', fontSize: 14,
+      position: 'Bottom Center', shadow: 1, outline: 1, subtitleFormat: 'srt'
     };
   });
 
-  // Save config to localStorage whenever it changes
+  // Live session state (absorbed from LivePreview)
+  const [lookahead, setLookahead] = useState(30);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<LiveStatusResponse | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [stoppedSrt, setStoppedSrt] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pollRef = useRef<number | null>(null);
+  const failCountRef = useRef(0);
+
   React.useEffect(() => {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
   }, [config]);
 
-  // Auto-scroll state for logs
-  const [autoScrollLogs, setAutoScrollLogs] = useState(true);
-  const logsContainerRef = React.useRef<HTMLDivElement>(null);
-
-  // Auto-scroll effect when logs update
-  React.useEffect(() => {
-    if (autoScrollLogs && logsContainerRef.current) {
-      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
     }
-  }, [logs, autoScrollLogs]);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
-  // Handle manual scroll - pause auto-scroll if user scrolls up
-  const handleLogsScroll = () => {
-    if (logsContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
-      const isAtBottom = Math.abs(scrollHeight - scrollTop - clientHeight) < 10;
+  // New file clears any finished live session leftovers
+  useEffect(() => {
+    setStoppedSrt(null);
+    setLiveError(null);
+  }, [file]);
 
-      if (!isAtBottom && autoScrollLogs) {
-        setAutoScrollLogs(false);
-      } else if (isAtBottom && !autoScrollLogs) {
-        setAutoScrollLogs(true);
+  const setFile = (f: File | null) => setFileState(f);
+
+  const set = <K extends keyof SubtitleConfig>(key: K, value: SubtitleConfig[K]) =>
+    setConfig(prev => ({ ...prev, [key]: value }));
+
+  /* ---------- live session ---------- */
+
+  const clearPolling = () => {
+    if (pollRef.current !== null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const poll = async (sid: string) => {
+    const video = videoRef.current;
+    const position = video ? video.currentTime : 0;
+    const state = video && !video.paused && !video.ended ? 'Playing' : 'Paused';
+    try {
+      const status = await api.liveStatus(sid, position, state);
+      setLiveStatus(status);
+      failCountRef.current = 0;
+      if (status.error) {
+        clearPolling();
+        api.liveStop(sid).catch(() => {});
+        setLiveError(status.error);
+        setSessionId(null);
+      }
+    } catch {
+      failCountRef.current += 1;
+      if (failCountRef.current >= 20) {
+        clearPolling();
+        api.liveStop(sid).catch(() => {});
+        setLiveError('Lost connection to backend.');
+        setSessionId(null);
       }
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+  const startLive = async () => {
+    if (!file) return;
+    setIsStarting(true);
+    setLiveError(null);
+    setStoppedSrt(null);
+    try {
+      const res: LiveStartResponse = await api.liveStartUpload(file, {
+        source_lang: config.sourceLang,
+        target_lang: config.targetLang,
+        lookahead_seconds: lookahead,
+        whisper_model: settings.localWhisperModel,
+        llm_model: settings.localLlmModel,
+        local_llm_file: settings.localLlmFile,
+      });
+      setSessionId(res.session_id);
+      // Seed from the start response so the "preparing video" spinner is correct
+      // from t=0 (first real status poll is 500ms later; until then the raw,
+      // non-browser-decodable source would have been mounted by mistake).
+      setLiveStatus({
+        transcoding: res.transcoding,
+        transcode_progress: 0,
+        hls: res.hls,
+        playlist_ready: false,
+        segments: [],
+        error: null,
+      } as unknown as LiveStatusResponse);
+      pollRef.current = window.setInterval(() => poll(res.session_id), 500);
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : 'Failed to start live translation');
+    } finally {
+      setIsStarting(false);
     }
   };
 
-  const handleStart = () => {
-    if (file) {
-      onStart(file, config);
-    }
+  const stopLive = async () => {
+    if (!sessionId) return;
+    clearPolling();
+    try {
+      const r = await api.liveStop(sessionId);
+      setStoppedSrt(r.srt_file_path);
+    } catch { /* session already gone */ }
+    setSessionId(null);
   };
+
+  useEffect(() => () => clearPolling(), []);
+
+  /* ---------- derived ---------- */
+
+  const liveRunning = sessionId !== null;
+  const stageMode: StageMode = result
+    ? 'done'
+    : isProcessing
+    ? 'processing'
+    : liveRunning
+    ? 'live'
+    : file
+    ? 'preview'
+    : 'empty';
+
+  const resultUrl = useMemo(
+    () => (result?.video_output ? `/api/download?path=${encodeURIComponent(result.video_output)}` : null),
+    [result]
+  );
+
+  const latestLog = isProcessing && logs.length > 0 ? logs[logs.length - 1] : null;
+  const hasActivity = isProcessing || startedAt !== null;
+  const configVisible = !isProcessing && !result && !liveRunning;
+
+  const currentPosition = liveRunning ? (videoRef.current?.currentTime ?? 0) : 0;
+  const currentLiveSegment = liveRunning
+    ? (liveStatus?.segments?.find(s => s.start <= currentPosition && currentPosition < s.end) ?? null)
+    : null;
+  const upcoming = liveRunning
+    ? (liveStatus?.segments?.filter(seg => seg.start > currentPosition).sort((a, b) => a.start - b.start).slice(0, 4) ?? [])
+    : [];
+  const bufferHealth = liveStatus?.buffer_health_seconds ?? 0;
+  const bufferFill = Math.min(100, (bufferHealth / lookahead) * 100);
+  const bufferColor = bufferHealth > 15 ? 'bg-success' : bufferHealth >= 5 ? 'bg-warning' : 'bg-error';
+  const srtPath = liveStatus?.srt_file_path ?? stoppedSrt;
+  const displayLiveError = liveError || liveStatus?.error || null;
+  const friendlyLiveError = displayLiveError ? describeError(displayLiveError) : null;
+
+  const overlaySegment = liveRunning && currentLiveSegment
+    ? { original: currentLiveSegment.original, text: currentLiveSegment.text, speaker: currentLiveSegment.speaker }
+    : liveSegment;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-      {/* Left Column: Config */}
-      <div className="lg:col-span-7 space-y-6">
-        <Card title="1. Upload Video">
-          <div
-            className={`border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center space-y-4 cursor-pointer hover:bg-gray-50 ${file ? 'border-telus-green bg-green-50' : 'border-gray-200'
-              }`}
-            onClick={() => document.getElementById('video-upload')?.click()}
-          >
-            <input
-              type="file"
-              id="video-upload"
-              className="hidden"
-              accept="video/*"
-              onChange={handleFileChange}
-            />
-            <div className={`p-3 rounded-full ${file ? 'bg-telus-green text-white' : 'bg-gray-100 text-gray-400'}`}>
-              <ICONS.Video />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-gray-700">
-                {file ? file.name : 'Drop video files here or click to browse'}
+    <div className="grid grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)_280px] gap-5 items-start">
+      {/* Visually hidden live region for screen reader announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {steps.find(s => s.status === 'processing')?.label
+          ? `Processing: ${steps.find(s => s.status === 'processing')!.label}`
+          : result
+          ? 'Translation complete. Files are ready to download.'
+          : liveRunning
+          ? 'Live translation running.'
+          : ''}
+      </div>
+
+      {/* LEFT RAIL — pipeline / live status */}
+      <aside className="space-y-5 order-2 lg:order-1 lg:sticky lg:top-20">
+        {liveRunning ? (
+          <Card title="Live session">
+            <div className="space-y-3">
+              <div className="flex justify-between text-xs font-semibold text-ink-soft">
+                <span>Buffer</span>
+                <span className="tabular-nums">{bufferHealth.toFixed(0)}s ahead</span>
+              </div>
+              <div className="w-full h-2 bg-edge/60 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${bufferColor}`} style={{ width: `${bufferFill}%` }} />
+              </div>
+              <p className="text-xs text-ink-faint">
+                {liveStatus ? `${liveStatus.segments.length} subtitles generated` : 'Waiting for status…'}
               </p>
-              <p className="text-sm text-gray-500">
-                {file ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : 'MP4, MOV, MKV up to 2GB'}
-              </p>
             </div>
-            {file && (
-              <button
-                className="text-sm font-medium text-red-500 hover:text-red-700 mt-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFile(null);
-                }}
-              >
-                Remove File
-              </button>
-            )}
-          </div>
+          </Card>
+        ) : hasActivity ? (
+          <Card>
+            <StepRail steps={steps} startedAt={startedAt} finishedAt={finishedAt} failed={!!error && !isProcessing} />
+          </Card>
+        ) : null}
+        <Card title="Engine">
+          <dl className="space-y-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-faint">Transcription</dt>
+              <dd className="font-semibold text-ink truncate">{settings.localWhisperModel}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-faint">Translation</dt>
+              <dd className="font-semibold text-ink truncate font-mono text-xs pt-0.5">{settings.localLlmFile}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-faint">GPU encoding</dt>
+              <dd className={`font-semibold ${settings.useGpuEncoding ? 'text-success' : 'text-ink-faint'}`}>
+                {settings.useGpuEncoding ? 'On' : 'Off'}
+              </dd>
+            </div>
+          </dl>
+          <p className="text-xs text-ink-faint mt-4">
+            Change models in <span className="font-semibold text-ink-soft">Settings</span>.
+          </p>
         </Card>
+        {(hasActivity || liveRunning) && (
+          <LogsConsole logs={liveRunning ? (liveStatus?.logs ?? []) : logs} ariaLabel="Translation logs" />
+        )}
+      </aside>
 
-        <Card title="2. Language Selection">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* CENTER — stage */}
+      <main className="space-y-5 order-1 lg:order-2 min-w-0">
+        {stageMode === 'empty' && (
+          <div className="enter-slide-up">
+            <h2 className="text-xl font-bold text-ink">Studio-grade subtitles in minutes.</h2>
+            <p className="text-sm text-ink-soft mt-1">Drop a video and go — everything runs locally on your machine.</p>
+          </div>
+        )}
+
+        <StageCanvas
+          mode={stageMode}
+          file={file}
+          previewUrl={previewUrl}
+          resultUrl={resultUrl}
+          steps={steps}
+          latestLog={latestLog}
+          liveSegment={overlaySegment}
+          sessionId={sessionId}
+          liveStatus={liveStatus}
+          videoRef={videoRef}
+          onLiveTimeUpdate={() => setTick(t => t + 1)}
+          onLiveError={() => setLiveError('Video playback error')}
+          onLiveRecover={() => setLiveError(null)}
+          onFile={setFile}
+          onRemove={() => {
+            stopLive();
+            setFile(null);
+          }}
+        />
+
+        {liveRunning && liveStatus?.models_loading && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-soft border border-brand/20">
+            <span className="h-4 w-4 rounded-full border-2 border-brand border-t-transparent animate-spin shrink-0" aria-hidden="true" />
+            <p className="text-sm font-medium text-brand">
+              Loading AI models — press play now, first subtitles will appear once ready…
+            </p>
+          </div>
+        )}
+        {liveRunning && liveStatus?.remuxed && (
+          <p className="text-xs text-ink-faint">Video was remuxed to MP4 for browser playback (no quality loss).</p>
+        )}
+
+        {upcoming.length > 0 && (
+          <Card title="Upcoming subtitles">
+            <ul className="space-y-2">
+              {upcoming.map((seg, i) => (
+                <li key={i} className="flex items-baseline gap-2 text-sm text-ink-soft">
+                  <span className="font-mono text-xs shrink-0 text-ink-faint tabular-nums">[{formatTime(seg.start)}]</span>
+                  <span className="truncate">{seg.text}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        {configVisible && (
+          <div className="space-y-4 enter-slide-up">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
+              <div>
+                <FormLabel htmlFor="source-lang">From</FormLabel>
+                <Select id="source-lang" value={config.sourceLang} onChange={(e) => set('sourceLang', e.target.value)}>
+                  {SOURCE_LANGUAGES.map(l => <option key={l.value + l.label} value={l.value}>{l.label}</option>)}
+                </Select>
+              </div>
+              <div className="hidden sm:flex pb-3 text-ink-faint justify-center" aria-hidden="true">
+                <ICONS.ArrowRight />
+              </div>
+              <div>
+                <FormLabel>Into</FormLabel>
+                <div
+                  className="w-full bg-raised border border-edge rounded-lg px-4 py-3 text-ink select-none"
+                  aria-label="Target language"
+                >
+                  English
+                </div>
+              </div>
+            </div>
+
+            <OptionsDrawer config={config} onChange={set} />
+
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Source Language</label>
-              <select
-                className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                value={config.sourceLang}
-                onChange={(e) => setConfig({ ...config, sourceLang: e.target.value })}
-              >
-                {SOURCE_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Target Language</label>
-              <select
-                className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                value={config.targetLang}
-                onChange={(e) => setConfig({ ...config, targetLang: e.target.value })}
-              >
-                {TARGET_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="3. Processing Options">
-          <div className="space-y-4">
-            <label className="flex items-center space-x-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                checked={config.enableDiarization}
-                onChange={(e) => setConfig({ ...config, enableDiarization: e.target.checked })}
-              />
-              <div className="flex flex-col">
-                <span className="font-medium text-gray-700">Enable Speaker Diarization</span>
-                <span className="text-xs text-gray-400 italic">Requires Hugging Face Token in Settings</span>
-              </div>
-            </label>
-            <label className="flex items-center space-x-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                checked={config.qualityVerification}
-                onChange={(e) => setConfig({ ...config, qualityVerification: e.target.checked })}
-              />
-              <div className="flex flex-col">
-                <span className="font-medium text-gray-700">AI Quality Verification</span>
-                <span className="text-xs text-gray-400 italic">Extra pass for accuracy</span>
-              </div>
-            </label>
-          </div>
-        </Card>
-
-        <Card title="4. Output Format">
-          <div className="space-y-6">
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                checked={config.burnSubtitles}
-                onChange={(e) => setConfig({ ...config, burnSubtitles: e.target.checked })}
-              />
-              <div className="flex flex-col">
-                <span className="font-medium text-gray-700">Burn Subtitles into Video</span>
-                <span className="text-xs text-gray-400 italic">Re-encodes video (Slower)</span>
-              </div>
-            </label>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Subtitle Format</label>
-              <div className="flex gap-2">
-                {SUBTITLE_FORMATS.map(f => (
+              <FormLabel>Live preview lookahead</FormLabel>
+              <div className="flex gap-2" role="group" aria-label="Lookahead window">
+                {LOOKAHEAD_PRESETS.map(p => (
                   <button
-                    key={f.value}
-                    onClick={() => setConfig({ ...config, subtitleFormat: f.value as any })}
-                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all ${config.subtitleFormat === f.value
-                      ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-sm'
-                      : 'bg-white border-gray-200 text-gray-400 hover:border-purple-100'
-                      }`}
+                    key={p.value}
+                    onClick={() => setLookahead(p.value)}
+                    aria-pressed={lookahead === p.value}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
+                      lookahead === p.value
+                        ? 'bg-brand-soft border-brand/40 text-brand shadow-sm'
+                        : 'bg-raised border-edge text-ink-faint hover:border-brand/40'
+                    }`}
                   >
-                    {f.label.split(' ')[0]}
+                    {p.label.split(' ')[0]}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Font</label>
-                <select
-                  className="w-full bg-white border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none"
-                  value={config.font}
-                  onChange={(e) => setConfig({ ...config, font: e.target.value })}
-                >
-                  {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Position</label>
-                <select
-                  className="w-full bg-white border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none"
-                  value={config.position}
-                  onChange={(e) => setConfig({ ...config, position: e.target.value })}
-                >
-                  {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size ({config.fontSize})</label>
-                <input
-                  type="range"
-                  min="10"
-                  max="48"
-                  className="w-full accent-purple-600"
-                  value={config.fontSize}
-                  onChange={(e) => setConfig({ ...config, fontSize: parseInt(e.target.value) })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Shadow ({config.shadow})</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="5"
-                  step="0.5"
-                  className="w-full accent-purple-600"
-                  value={config.shadow}
-                  onChange={(e) => setConfig({ ...config, shadow: parseFloat(e.target.value) })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Stroke ({config.outline})</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="5"
-                  step="0.5"
-                  className="w-full accent-purple-600"
-                  value={config.outline}
-                  onChange={(e) => setConfig({ ...config, outline: parseFloat(e.target.value) })}
-                />
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {error && (
-          <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm font-medium">
-            ⚠️ {error}
+            {error && (
+              <Banner variant="error">
+                <div className="flex items-center justify-between gap-4">
+                  <span>{error}</span>
+                  {file && (
+                    <button
+                      onClick={() => onStart(file, config)}
+                      className="shrink-0 text-xs font-bold underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current rounded"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              </Banner>
+            )}
           </div>
         )}
 
-        <button
-          onClick={handleStart}
-          disabled={!file || isProcessing}
-          className={`w-full py-5 rounded-xl text-white font-bold text-xl shadow-lg transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
-          style={{ backgroundColor: COLORS.GREEN }}
-        >
-          {isProcessing ? 'Processing Translation...' : 'Start Translation'}
-        </button>
-      </div>
+        {displayLiveError && (
+          <Banner variant="error">
+            {friendlyLiveError !== displayLiveError ? (
+              <>
+                <p>{friendlyLiveError}</p>
+                <p className="mt-1 font-mono text-xs opacity-80">{displayLiveError}</p>
+              </>
+            ) : (
+              <p>{displayLiveError}</p>
+            )}
+          </Banner>
+        )}
 
-      {/* Right Column: Status & Outputs */}
-      <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-8">
-        <Card title="Processing Status">
-          <div className="space-y-4">
-            {steps.map(step => (
-              <div key={step.id} className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className={`font-semibold ${step.status === 'completed' ? 'text-green-600' : step.status === 'processing' ? 'text-purple-700' : 'text-gray-500'}`}>
-                    {step.label}
-                  </span>
-                  <span className="text-gray-400">{step.progress}%</span>
-                </div>
-                <ProgressBar progress={step.progress} status={step.status} />
-              </div>
-            ))}
-          </div>
-        </Card>
+      </main>
 
-        <Card title="Outputs">
-          {result ? (
-            <div className="space-y-3">
-              {result.video_output && (
-                <div className="flex items-center justify-between p-4 bg-purple-50 rounded-xl border border-purple-100">
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-white rounded-lg text-purple-700">
-                      <ICONS.Video />
-                    </div>
-                    <div className="overflow-hidden">
-                      <p className="font-semibold text-gray-800 truncate">{result.video_output.split(/[/\\]/).pop()}</p>
-                      <p className="text-xs text-gray-500">Processed Video</p>
-                    </div>
+      {/* RIGHT RAIL — output + one primary action */}
+      <aside className="space-y-5 order-3 lg:sticky lg:top-20">
+        {result ? (
+          <Card>
+            <ResultsPanel result={result} onReset={onReset} />
+          </Card>
+        ) : liveRunning || stoppedSrt ? (
+          <>
+            <Card title="Output">
+              {srtPath ? (
+                <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink truncate text-sm">{srtPath.split(/[/\\]/).pop()}</p>
+                    <p className="text-xs text-ink-faint">Live subtitles (SRT)</p>
                   </div>
                   <a
-                    href={`/api/download?path=${encodeURIComponent(result.video_output)}`}
-                    className="text-sm font-bold text-purple-700 hover:underline"
+                    href={`/api/download?path=${encodeURIComponent(srtPath)}`}
+                    className="shrink-0 inline-flex items-center gap-1.5 text-sm font-bold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 rounded"
                     download
                   >
+                    <ICONS.Download />
                     Download
                   </a>
                 </div>
-              )}
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="flex items-center space-x-3 text-gray-400">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <div className="overflow-hidden">
-                    <p className="font-semibold text-gray-600 truncate">{result.output_file.split(/[/\\]/).pop()}</p>
-                    <p className="text-xs">Plain text subtitles</p>
-                  </div>
-                </div>
-                <a
-                  href={`/api/download?path=${encodeURIComponent(result.output_file)}`}
-                  className="text-sm font-bold text-purple-700 hover:underline"
-                  download
-                >
-                  Download
-                </a>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-400 italic">
-              {isProcessing ? 'Processing... Stay tuned!' : 'Results will appear here once processing is complete'}
-            </div>
-          )}
-        </Card>
-
-        {isProcessing && (
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">Live Logs</h3>
-              {!autoScrollLogs && (
-                <button
-                  onClick={() => setAutoScrollLogs(true)}
-                  className="px-3 py-1 text-xs font-bold bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all"
-                >
-                  Resume Auto-Scroll
-                </button>
-              )}
-            </div>
-            <div
-              ref={logsContainerRef}
-              onScroll={handleLogsScroll}
-              className="font-mono text-[10px] text-gray-600 space-y-1 max-h-[348px] overflow-y-auto"
-            >
-              {logs.length > 0 ? (
-                logs.map((log, i) => <p key={i}>{log}</p>)
               ) : (
-                <p className="italic opacity-50">Waiting for process logs...</p>
+                <p className="text-xs text-ink-faint leading-relaxed">SRT file will appear here once subtitles are generated.</p>
               )}
-            </div>
-          </div>
+            </Card>
+            {liveRunning ? (
+              <button
+                onClick={stopLive}
+                className="w-full py-4 rounded-xl bg-transparent text-error border-2 border-error/40 font-bold text-lg transition-all hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+              >
+                Stop
+              </button>
+            ) : (
+              file && (
+                <button
+                  onClick={startLive}
+                  disabled={isStarting}
+                  className="w-full py-4 rounded-xl bg-action hover:bg-action-hover text-white font-bold text-lg shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+                >
+                  {isStarting ? 'Starting…' : 'Watch live again'}
+                </button>
+              )
+            )}
+          </>
+        ) : (
+          <>
+            <Card title="Output">
+              {!file ? (
+                <p className="text-xs text-ink-faint leading-relaxed">
+                  Your files will land here — subtitle file{config.burnSubtitles ? ' and burned video' : ''}.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl opacity-70">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}.{config.subtitleFormat}</p>
+                      <p className="text-xs text-ink-faint">Subtitle file</p>
+                    </div>
+                    <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-edge/70 text-ink-faint">
+                      {isProcessing ? 'queued' : 'waiting'}
+                    </span>
+                  </div>
+                  {config.burnSubtitles && (
+                    <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl opacity-70">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}{settings.outputSuffix || '_translated'}.mp4</p>
+                        <p className="text-xs text-ink-faint">Burned video</p>
+                      </div>
+                      <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-edge/70 text-ink-faint">
+                        {isProcessing ? 'queued' : 'waiting'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+
+            <button
+              onClick={startLive}
+              disabled={!file || isStarting}
+              className="w-full py-4 rounded-xl bg-action hover:bg-action-hover text-white font-bold text-lg shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-action focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+            >
+              {isStarting ? 'Starting…' : 'Watch with live subtitles'}
+            </button>
+            {file && !isProcessing && (
+              <>
+                <button
+                  onClick={() => onStart(file, config)}
+                  className="w-full text-xs font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 rounded py-1"
+                >
+                  or translate the full video →
+                </button>
+                <p className="text-xs text-ink-faint text-center">
+                  Everything is local — nothing leaves your machine.
+                </p>
+              </>
+            )}
+          </>
         )}
-      </div>
+      </aside>
     </div>
   );
-
 };
 
 export default Translator;

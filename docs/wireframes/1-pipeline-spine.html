@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wireframe 1 — Pipeline Spine</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: { brand: '#4B286D', cta: '#2B8000', ink: '#2A2C2E', ink2: '#54595F', faint: '#9CA0A8', edge: '#E4E6EA', surface: '#F7F8FA' },
+    fontFamily: { sans: ['Inter', 'sans-serif'] }
+  }}
+}
+</script>
+<style>
+  .ph { border: 1.5px dashed #C6CAD1; background: repeating-linear-gradient(45deg, #F2F3F5, #F2F3F5 8px, #EDEFF2 8px, #EDEFF2 16px); }
+  .note { font-size: 11px; color: #9CA0A8; letter-spacing: .02em; text-transform: uppercase; font-weight: 600; }
+</style>
+</head>
+<body class="bg-surface font-sans text-ink antialiased">
+<div class="max-w-2xl mx-auto px-6 py-10">
+
+  <!-- Header: wordmark only, no nav tabs -->
+  <header class="flex items-center justify-between mb-10">
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 rounded-lg bg-brand flex items-center justify-center text-white text-xs font-bold">K</div>
+      <span class="font-bold tracking-tight">KotoSub</span>
+    </div>
+    <button class="text-sm text-ink2 hover:text-ink">Settings</button>
+  </header>
+
+  <p class="note mb-3">Concept 1 — Pipeline Spine · one column · the page IS the job</p>
+
+  <!-- ===== STATE: FILE DROPPED ===== -->
+  <!-- Hero: the video itself -->
+  <section class="bg-white border border-edge rounded-2xl p-5 shadow-sm mb-3">
+    <div class="flex gap-4 items-center">
+      <div class="ph w-28 h-16 rounded-lg flex items-center justify-center text-faint text-xs">video thumb</div>
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold text-sm truncate">interview-ep12-final.mp4</p>
+        <p class="text-xs text-ink2 mt-0.5">1.2 GB · 24:31 · English detected</p>
+        <p class="text-xs text-faint mt-1">Translate to <span class="font-semibold text-brand">Spanish</span> ▾</p>
+      </div>
+      <!-- one clear action -->
+      <button class="bg-cta text-white text-sm font-semibold px-5 py-2.5 rounded-xl">Translate</button>
+    </div>
+
+    <!-- Options stay collapsed: one line to open depth -->
+    <button class="mt-4 text-xs text-ink2 hover:text-ink flex items-center gap-1.5">
+      <span class="w-4 h-4 rounded border border-edge flex items-center justify-center text-[10px]">+</span>
+      Advanced options — <span class="text-faint">speakers, burn-in, format</span>
+      <span class="ml-1 px-1.5 py-0.5 rounded bg-surface text-[10px] text-ink2">2 changed</span>
+    </button>
+  </section>
+
+  <!-- ===== STATE: PROCESSING — pipeline spine ===== -->
+  <p class="note mb-2 mt-8">Same page, next state — progress replaces the CTA</p>
+  <section class="bg-white border border-edge rounded-2xl p-5 shadow-sm mb-3">
+    <div class="flex gap-4 items-center mb-5">
+      <div class="ph w-28 h-16 rounded-lg flex items-center justify-center text-faint text-xs">video thumb</div>
+      <div class="flex-1">
+        <p class="font-semibold text-sm">Translating to Spanish…</p>
+        <p class="text-xs text-ink2 mt-0.5">Step 3 of 4 · 12:41 elapsed · <span class="text-cta font-medium">on track</span></p>
+      </div>
+      <span class="text-xs px-2.5 py-1 rounded-full bg-cta/10 text-cta font-semibold">Processing</span>
+    </div>
+
+    <!-- vertical spine -->
+    <div class="relative pl-7">
+      <div class="absolute left-[9px] top-2 bottom-2 w-px bg-edge"></div>
+
+      <div class="relative mb-5">
+        <div class="absolute -left-7 top-0.5 w-[19px] h-[19px] rounded-full bg-cta text-white flex items-center justify-center text-[10px]">✓</div>
+        <p class="text-sm font-medium">Audio extracted</p>
+        <p class="text-xs text-faint">Denoised · normalized · 0:03</p>
+      </div>
+
+      <div class="relative mb-5">
+        <div class="absolute -left-7 top-0.5 w-[19px] h-[19px] rounded-full bg-cta text-white flex items-center justify-center text-[10px]">✓</div>
+        <p class="text-sm font-medium">Transcribed</p>
+        <p class="text-xs text-faint">312 segments · 2 speakers · 8:12</p>
+      </div>
+
+      <div class="relative mb-5">
+        <div class="absolute -left-7 top-0.5 w-[19px] h-[19px] rounded-full border-2 border-brand bg-white"></div>
+        <p class="text-sm font-medium">Translating <span class="text-faint font-normal">· 214 / 312 segments</span></p>
+        <div class="mt-1.5 h-1.5 rounded-full bg-surface w-full"><div class="h-full rounded-full bg-brand" style="width:68%"></div></div>
+        <p class="text-xs text-faint mt-1.5 font-mono">"So the first thing we did was…"</p>
+      </div>
+
+      <div class="relative">
+        <div class="absolute -left-7 top-0.5 w-[19px] h-[19px] rounded-full border-2 border-edge bg-white"></div>
+        <p class="text-sm font-medium text-faint">Writing subtitles</p>
+        <p class="text-xs text-faint">SRT · VTT · burned video</p>
+      </div>
+    </div>
+
+    <!-- log tray: collapsed by default -->
+    <button class="mt-5 text-xs text-ink2 hover:text-ink font-mono">▸ live logs (97)</button>
+  </section>
+
+  <!-- ===== STATE: DONE ===== -->
+  <p class="note mb-2 mt-8">Done state — artifacts inline, one action: download</p>
+  <section class="bg-white border border-edge rounded-2xl p-5 shadow-sm">
+    <div class="flex items-center justify-between mb-4">
+      <p class="font-semibold text-sm">Done · 16:02 total</p>
+      <span class="text-xs px-2.5 py-1 rounded-full bg-cta text-white font-semibold">✓ Complete</span>
+    </div>
+    <div class="ph h-32 rounded-xl mb-4 flex items-center justify-center text-faint text-xs">translated video preview</div>
+    <div class="grid grid-cols-3 gap-2 mb-4">
+      <div class="border border-edge rounded-lg px-3 py-2.5 text-xs font-medium flex justify-between items-center">interview-ep12.es.srt <span class="text-faint">↓</span></div>
+      <div class="border border-edge rounded-lg px-3 py-2.5 text-xs font-medium flex justify-between items-center">interview-ep12.es.vtt <span class="text-faint">↓</span></div>
+      <div class="border border-edge rounded-lg px-3 py-2.5 text-xs font-medium flex justify-between items-center">interview-ep12_es.mp4 <span class="text-faint">↓</span></div>
+    </div>
+    <button class="w-full bg-cta text-white text-sm font-semibold py-2.5 rounded-xl">Download all</button>
+    <button class="w-full mt-2 text-xs text-ink2 hover:text-ink py-1">Translate another video</button>
+  </section>
+
+  <p class="text-xs text-faint mt-8 leading-relaxed">Trade-off: one job at a time, no history. Perfect for the first-run creator; repeat users may want the queue (concept 3).</p>
+</div>
+</body>
+</html>

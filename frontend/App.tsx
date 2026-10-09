@@ -5,9 +5,28 @@ import Header from './components/Header';
 import Translator from './components/Translator';
 import Settings from './components/Settings';
 import { api } from './services/api';
-import { COLORS } from './constants';
 
 const SETTINGS_KEY = 'kotosub_app_settings_v1';
+
+const DEFAULT_SETTINGS: AppSettings = {
+  huggingFaceToken: '',
+  outputDir: 'C:\\Videos\\Translated',
+  localWhisperModel: 'large-v3-turbo',
+  localLlmModel: '17slever17/translate-gemma-4-sub-e4b-GGUF',
+  localLlmFile: 'translate_gemma4_sub-E4B-Q4_K_XL.gguf',
+  whisperPrompt: '',
+  whisperHotwords: '',
+  useGpuEncoding: false,
+  outputSuffix: '_translated',
+  includeLanguageInName: true
+};
+
+const IDLE_STEPS: ProcessingStep[] = [
+  { id: '1', label: 'Analyzing Video', progress: 0, status: 'idle' },
+  { id: '2', label: 'Transcribing Audio', progress: 0, status: 'idle' },
+  { id: '3', label: 'Translating', progress: 0, status: 'idle' },
+  { id: '4', label: 'Embedding Subtitles', progress: 0, status: 'idle' }
+];
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>(ViewType.TRANSLATOR);
@@ -17,64 +36,23 @@ const App: React.FC = () => {
     const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
       } catch (e) {
         console.warn('Failed to parse settings from localStorage', e);
       }
     }
-    return {
-      apiKey: '',
-      baseUrl: 'https://proxy.fuelix.ai',
-      huggingFaceToken: '',
-      whisperModel: 'whisper-large-v3',
-      llmModel: 'gemini-3-flash-preview',
-      outputDir: 'C:\\Videos\\Translated',
-      transcriptionProvider: 'openai',
-      translationProvider: 'openai',
-      localWhisperModel: 'medium',
-      localLlmModel: 'Qwen/Qwen3-8B-GGUF',
-      localLlmFile: 'Qwen3-8B-Q4_K_M.gguf',
-      useGpuEncoding: false,
-      processingMode: 'cloud',
-      outputSuffix: '_translated',
-      includeLanguageInName: true
-    };
+    return DEFAULT_SETTINGS;
   });
-
-  // Migration for stale settings (TheBloke repo changes)
-  React.useEffect(() => {
-    let updated = false;
-    const newSettings = { ...settings };
-
-    if (newSettings.localLlmModel === 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF') {
-      newSettings.localLlmModel = 'Qwen/Qwen3-8B-GGUF';
-      newSettings.localLlmFile = 'Qwen3-8B-Q4_K_M.gguf';
-      updated = true;
-    }
-    if (newSettings.localLlmModel === 'bartowski/Meta-Llama-3-8B-Instruct-GGUF') {
-      newSettings.localLlmModel = 'Qwen/Qwen3-8B-GGUF';
-      newSettings.localLlmFile = 'Qwen3-8B-Q4_K_M.gguf';
-      updated = true;
-    }
-
-    if (updated) {
-      console.log('Migrating stale model repository settings...');
-      onSaveSettings(newSettings);
-    }
-  }, []);
 
   // Translation State (Persistent during navigation)
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [steps, setSteps] = useState<ProcessingStep[]>([
-    { id: '1', label: 'Video Analysis', progress: 0, status: 'idle' },
-    { id: '2', label: 'Transcription', progress: 0, status: 'idle' },
-    { id: '3', label: 'Translation', progress: 0, status: 'idle' },
-    { id: '4', label: 'Subtitles Burn-in', progress: 0, status: 'idle' }
-  ]);
+  const [steps, setSteps] = useState<ProcessingStep[]>(IDLE_STEPS);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
+  const [liveSegment, setLiveSegment] = useState<{ original: string; text: string; speaker: string | null } | null>(null);
 
   // Wrapper to save settings
   const onSaveSettings = (newSettings: AppSettings) => {
@@ -112,11 +90,12 @@ const App: React.FC = () => {
       setLogs(prev => [...prev, event.message].slice(-100)); // Keep last 100 logs
     }
 
+    if (event.segment) {
+      setLiveSegment(event.segment);
+    }
+
     if (event.step === 'completed' && event.result) {
       setResult(event.result);
-    }
-    if (event.job_id) {
-      setActiveJobId(event.job_id);
     }
   };
 
@@ -124,8 +103,9 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setError(null);
     setResult(null);
-    // Don't clear logs - preserve them from previous runs for debugging
-    // setLogs([]);
+    setLiveSegment(null);
+    setStartedAt(Date.now());
+    setFinishedAt(null);
     setSteps(prev => prev.map(s => ({ ...s, progress: 0, status: 'idle' })));
 
     try {
@@ -134,16 +114,14 @@ const App: React.FC = () => {
         {
           ...config,
           apiKeys: {
-            openai: settings.apiKey,
             huggingFace: settings.huggingFaceToken
           },
-          baseUrl: settings.baseUrl,
-          whisperModel: settings.transcriptionProvider === 'local' ? settings.localWhisperModel : settings.whisperModel,
-          llmModel: settings.translationProvider === 'local' ? settings.localLlmModel : settings.llmModel,
+          whisperModel: settings.localWhisperModel,
+          whisperPrompt: settings.whisperPrompt,
+          whisperHotwords: settings.whisperHotwords,
+          llmModel: settings.localLlmModel,
           localLlmFile: settings.localLlmFile,
           outputDir: settings.outputDir,
-          transcriptionProvider: settings.transcriptionProvider,
-          translationProvider: settings.translationProvider,
           useGpuEncoding: settings.useGpuEncoding
         },
         updateStepsFromEvent
@@ -155,14 +133,24 @@ const App: React.FC = () => {
       setLogs(prev => [...prev, `❌ ERROR: ${errorMessage}`]);
     } finally {
       setIsProcessing(false);
+      setFinishedAt(Date.now());
     }
   };
 
+  const resetJob = () => {
+    setResult(null);
+    setError(null);
+    setLiveSegment(null);
+    setSteps(IDLE_STEPS);
+    setStartedAt(null);
+    setFinishedAt(null);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: COLORS.BG_GRAY }}>
+    <div className="min-h-screen flex flex-col bg-surface">
       <Header activeView={activeView} onViewChange={setActiveView} />
 
-      <main className="flex-grow container mx-auto px-4 py-8 max-w-7xl">
+      <main className="flex-grow container mx-auto px-4 sm:px-6 py-6 max-w-7xl">
         {activeView === ViewType.TRANSLATOR ? (
           <Translator
             settings={settings}
@@ -171,20 +159,19 @@ const App: React.FC = () => {
             logs={logs}
             result={result}
             error={error}
+            startedAt={startedAt}
+            finishedAt={finishedAt}
+            liveSegment={liveSegment}
             onStart={startTranslation}
+            onReset={resetJob}
           />
         ) : (
           <Settings settings={settings} onSave={onSaveSettings} />
         )}
       </main>
 
-      <footer className="py-6 border-t border-gray-200 text-center text-sm text-gray-500">
-        <p>KotoSub • Experimental Tool</p>
-        <div className="mt-2 flex justify-center space-x-4">
-          <span className="cursor-pointer hover:text-purple-700">Documentation</span>
-          <span className="cursor-pointer hover:text-purple-700">Support</span>
-          <span className="cursor-pointer hover:text-purple-700">API Access</span>
-        </div>
+      <footer className="py-4 border-t border-edge text-center text-xs text-ink-faint">
+        KotoSub · Experimental
       </footer>
     </div>
   );

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KotoSub — Workbench Prototype</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: { brand: '#4B286D', cta: '#2B8000', ink: '#2A2C2E', ink2: '#54595F', faint: '#9CA0A8', edge: '#E4E6EA', surface: '#F7F8FA' },
+    fontFamily: { sans: ['Inter', 'sans-serif'] }
+  }}
+}
+</script>
+<style>
+  .ph { border: 1.5px dashed #C6CAD1; background: repeating-linear-gradient(45deg, #F2F3F5, #F2F3F5 8px, #EDEFF2 8px, #EDEFF2 16px); }
+  .fade-in { animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .spinner { width: 19px; height: 19px; border-radius: 9999px; border: 2px solid #E4E6EA; border-top-color: #4B286D; animation: spin .8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="bg-surface font-sans text-ink antialiased h-screen flex flex-col overflow-hidden">
+
+  <header class="h-12 shrink-0 bg-white border-b border-edge flex items-center px-4 gap-3">
+    <div class="w-6 h-6 rounded-md bg-brand flex items-center justify-center text-white text-[10px] font-bold">K</div>
+    <span class="font-bold text-sm tracking-tight">KotoSub</span>
+    <span class="mx-2 h-4 w-px bg-edge"></span>
+    <p class="text-xs text-faint truncate" id="hd-title">Ops Workbench prototype — flow simulated</p>
+    <div class="ml-auto flex items-center gap-2">
+      <button class="text-xs text-ink2 hover:text-ink px-2 py-1" onclick="showLogs()">Logs</button>
+      <button class="text-xs text-ink2 hover:text-ink px-2 py-1">Settings</button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex min-h-0">
+    <!-- LEFT RAIL -->
+    <aside class="w-60 shrink-0 bg-white border-r border-edge p-4 overflow-y-auto" id="rail"></aside>
+
+    <!-- CENTER STAGE -->
+    <main class="flex-1 flex flex-col min-w-0 p-6 overflow-y-auto" id="stage"></main>
+
+    <!-- RIGHT RAIL -->
+    <aside class="w-72 shrink-0 bg-white border-l border-edge p-4 overflow-y-auto flex flex-col" id="side"></aside>
+  </div>
+</body>
+
+<script>
+const LANGS = ['Spanish', 'Japanese', 'German', 'French', 'Portuguese'];
+const FILES = ['interview-ep12-final.mp4', 'vlog-tokyo-day3.mp4', 'podcast-clip-089.mov'];
+const STEPS = [
+  { name: 'Extract audio', detail: 'Denoised · normalized', dur: 1800 },
+  { name: 'Transcribe', detail: '312 segments · 2 speakers', dur: 3200, live: 'src' },
+  { name: 'Translate', detail: '214 / 312 segments', dur: 7000, live: 'es' },
+  { name: 'Quality pass', detail: 'Rechecked 18 low-confidence', dur: 2400 },
+  { name: 'Write subtitles', detail: 'SRT · VTT', dur: 1600 },
+  { name: 'Burn in', detail: 'NVENC · GPU', dur: 2000 },
+];
+const SRC_LINES = [
+  '"So the first thing we did was…"', '"That\'s when we realized…"',
+  '"Nobody expected that result."', '"We shipped it the next morning…"',
+  '"And honestly, it changed everything."', '"Let me show you how it works."',
+];
+const ES_LINES = [
+  '"así que lo primero que hicimos fue…"', '"ahí fue cuando nos dimos cuenta…"',
+  '"Nadie esperaba ese resultado."', '"Lo lanzamos a la mañana siguiente…"',
+  '"Y honestamente, cambió todo."', '"Déjame mostrarte cómo funciona."',
+];
+
+let lang = 0, fileIdx = 0, timers = [], logCount = 0, opts = { speakers: true, burn: true, format: 'SRT' };
+
+const $ = id => document.getElementById(id);
+const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+const thumb = (cls = 'w-14 h-9 text-[9px]') =>
+  `<div class="ph ${cls} rounded-md flex items-center justify-center text-faint shrink-0">thumb</div>`;
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+/* ---------- LEFT RAIL ---------- */
+function railState(state, activeIdx, pct) {
+  const rail = $('rail');
+  if (state === 'idle') {
+    rail.innerHTML = `<p class="text-[11px] font-semibold uppercase tracking-wider text-faint mb-3">Pipeline</p>
+      <p class="text-xs text-faint leading-relaxed">Drop a video to begin. Steps appear here with live status.</p>`;
+    return;
+  }
+  const rows = STEPS.map((s, i) => {
+    const done = state === 'done' || (state === 'running' && i < activeIdx);
+    const active = state === 'running' && i === activeIdx;
+    const failed = state === 'failed' && i === activeIdx;
+    const icon = done ? `<span class="w-5 h-5 rounded-full bg-cta text-white flex items-center justify-center text-[10px] shrink-0">✓</span>`
+      : failed ? `<span class="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] shrink-0">!</span>`
+      : active ? `<span class="spinner"></span>`
+      : `<span class="w-5 h-5 rounded-full border-2 border-edge bg-white shrink-0"></span>`;
+    const dim = state === 'idle' || (!done && !active && !failed);
+    const bar = active ? `<div class="h-1 mt-1.5 rounded-full bg-surface"><div class="h-full rounded-full bg-brand transition-all duration-300" style="width:${pct}%"></div></div>` : '';
+    return `<div class="flex items-center gap-2.5 px-2 py-2 rounded-lg ${failed ? 'bg-red-50' : active ? 'bg-brand/5 ring-1 ring-brand/20' : done ? 'bg-cta/5' : ''} ${dim ? 'opacity-50' : ''}">
+        ${icon}<span class="text-xs ${active ? 'font-semibold text-brand' : 'font-medium'} truncate">${s.name}</span>
+        ${done ? `<span class="ml-auto text-[10px] text-faint shrink-0">${s.dur > 2000 ? 'done' : ''}</span>` : active ? `<span class="ml-auto text-[10px] text-brand font-semibold shrink-0">${pct}%</span>` : failed ? `<span class="ml-auto text-[10px] text-red-500 font-semibold shrink-0">failed</span>` : ''}
+      </div>${bar}`;
+  }).join('');
+  rail.innerHTML = `<p class="text-[11px] font-semibold uppercase tracking-wider text-faint mb-3">Pipeline</p>
+    <div class="space-y-1">${rows}</div>
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-faint mt-6 mb-2">Source</p>
+    <div class="flex items-center gap-2.5">${thumb()}<div class="min-w-0"><p class="text-xs font-medium truncate">${FILES[fileIdx]}</p>
+    <p class="text-[10px] text-faint">1.2 GB · 24:31 · EN → ${LANGS[lang].slice(0, 2).toUpperCase()}</p></div></div>`;
+}
+
+/* ---------- RIGHT RAIL ---------- */
+function sideState(state) {
+  const ready = state === 'done';
+  const artifacts = [
+    { n: 'Subtitles .srt', x: '.srt' }, { n: 'Web .vtt', x: '.vtt' }, { n: 'Burned .mp4', x: '_es.mp4' },
+  ].map(a => `<div class="flex items-center justify-between border rounded-lg px-3 py-2.5 ${ready ? 'border-edge hover:border-brand cursor-pointer' : 'border-edge opacity-60'}">
+      <p class="text-xs font-medium">${FILES[fileIdx].replace(/\.[^.]+$/, '')}${a.x}</p>
+      <span class="text-[10px] ${ready ? 'text-cta font-semibold' : 'text-faint'}">${ready ? '↓ ready' : 'queued'}</span></div>`).join('');
+  $('side').innerHTML = `
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-faint mb-3">Output</p>
+    <div class="space-y-2">${artifacts}</div>
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-faint mt-6 mb-2">Run options</p>
+    <div class="space-y-2 text-xs">
+      <button class="w-full flex items-center justify-between border border-edge rounded-lg px-3 py-2.5 hover:border-brand" onclick="cycleLang()">Target language <span class="font-semibold text-brand">${LANGS[lang]} ▾</span></button>
+      <label class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5 cursor-pointer">Speaker names <input type="checkbox" ${opts.speakers ? 'checked' : ''} class="accent-[#2B8000]" onchange="opts.speakers=this.checked"></label>
+      <label class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5 cursor-pointer">Burn into video <input type="checkbox" ${opts.burn ? 'checked' : ''} class="accent-[#2B8000]" onchange="opts.burn=this.checked"></label>
+    </div>
+    <div class="mt-auto pt-4">
+      ${state === 'running' ? `<button class="w-full bg-cta/40 text-white text-sm font-semibold py-2.5 rounded-xl cursor-wait">Run in progress…</button>
+        <button class="w-full mt-2 text-xs text-ink2 hover:text-red-500 py-1" onclick="failRun()">Cancel run</button>`
+      : state === 'done' ? `<button class="w-full bg-cta text-white text-sm font-semibold py-2.5 rounded-xl hover:brightness-110">Download all</button>
+        <button class="w-full mt-2 text-xs text-ink2 hover:text-ink py-1" onclick="renderIdle()">Translate another video</button>`
+      : state === 'failed' ? `<button class="w-full bg-cta text-white text-sm font-semibold py-2.5 rounded-xl hover:brightness-110" onclick="startRun()">Retry</button>`
+      : `<p class="text-[10px] text-faint text-center leading-relaxed">${state === 'ready' ? 'Press Translate on the stage to start' : 'Everything is local — nothing leaves your machine'}</p>`}
+    </div>`;
+}
+function cycleLang() { lang = (lang + 1) % LANGS.length; if (cur === 'ready') renderReady(); else sideState(cur); }
+
+/* ---------- STAGE ---------- */
+function stageFrame(subSrc, subEs, cls = '') {
+  const lines = subEs
+    ? `<p class="text-white/60 text-xs">${esc(subSrc)}</p><p class="bg-ink/80 text-white text-sm px-4 py-1.5 rounded font-medium">${esc(subEs)}</p>`
+    : subSrc ? `<p class="bg-ink/80 text-white text-sm px-4 py-1.5 rounded font-medium">${esc(subSrc)}</p>` : '';
+  return `<div class="relative flex-1 rounded-xl overflow-hidden flex flex-col items-center justify-end pb-8 gap-2 min-h-[260px] ${cls}" id="frame">
+      <div class="absolute inset-0 ph"></div>
+      <div class="relative flex flex-col items-center gap-1.5 w-full px-8">${lines}</div></div>`;
+}
+
+function renderIdle() {
+  cur = 'idle'; clearTimers(); logCount = 0;
+  $('hd-title').textContent = 'Ops Workbench prototype — flow simulated';
+  railState('idle'); sideState('idle');
+  $('stage').innerHTML = `
+    <div class="flex-1 flex items-center justify-center fade-in">
+      <div class="border-2 border-dashed border-edge hover:border-brand rounded-2xl px-10 py-14 text-center cursor-pointer transition-colors" onclick="renderReady()">
+        <div class="w-10 h-10 mx-auto mb-3 rounded-xl bg-brand/10 flex items-center justify-center"><span class="text-brand text-lg font-bold">↑</span></div>
+        <p class="text-sm font-semibold">Drop a video to translate</p>
+        <p class="text-xs text-faint mt-1">MP4, MOV, MKV · or click to simulate a file pick</p>
+      </div>
+    </div>`;
+}
+
+function renderReady() {
+  cur = 'ready'; clearTimers();
+  $('hd-title').textContent = FILES[fileIdx];
+  railState('ready'); sideState('ready');
+  $('stage').innerHTML = `
+    <div class="fade-in flex flex-col h-full min-h-0">
+      <div class="flex items-center justify-between mb-4">
+        <div><h1 class="text-lg font-bold tracking-tight">${FILES[fileIdx]}</h1>
+        <p class="text-xs text-ink2 mt-0.5">1.2 GB · 24:31 · English detected</p></div>
+        <span class="text-xs px-2.5 py-1 rounded-full bg-surface text-ink2 font-semibold">Idle</span>
+      </div>
+      ${stageFrame()}
+      <div class="mt-4 flex items-center gap-3">
+        <button class="bg-cta text-white text-sm font-semibold px-6 py-2.5 rounded-xl hover:brightness-110" onclick="startRun()">Translate</button>
+        <button class="text-xs text-faint hover:text-brand" onclick="cycleLang()">→ ${LANGS[lang]} ▾</button>
+        <label class="ml-auto text-xs text-ink2 flex items-center gap-1.5 cursor-pointer">Speakers <input type="checkbox" ${opts.speakers ? 'checked' : ''} class="accent-[#2B8000]" onchange="opts.speakers=this.checked"></label>
+        <label class="text-xs text-ink2 flex items-center gap-1.5 cursor-pointer">Burn in <input type="checkbox" ${opts.burn ? 'checked' : ''} class="accent-[#2B8000]" onchange="opts.burn=this.checked"></label>
+      </div>
+    </div>`;
+}
+
+function startRun() {
+  cur = 'running'; clearTimers(); logCount = 0;
+  railState('running', 0, 0); sideState('running');
+  $('hd-title').textContent = `Translating ${FILES[fileIdx]} → ${LANGS[lang]}`;
+  $('stage').innerHTML = `
+    <div class="fade-in flex flex-col h-full min-h-0">
+      <div class="flex items-center justify-between mb-4">
+        <div><h1 class="text-lg font-bold tracking-tight">Translating → ${LANGS[lang]}</h1>
+        <p class="text-xs text-ink2 mt-0.5" id="eta">Starting…</p></div>
+        <span class="text-xs px-2.5 py-1 rounded-full bg-cta/10 text-cta font-semibold">Processing</span>
+      </div>
+      <div id="frame-wrap" class="flex flex-col flex-1 min-h-0">${stageFrame()}</div>
+      <div class="mt-4 bg-white border border-edge rounded-xl p-3 shrink-0">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-faint" id="segcount">Live preview</p>
+          <p class="text-[10px] text-faint font-mono">large-v3-turbo · Qwen3 · GPU</p>
+        </div>
+        <div class="space-y-1.5 text-xs min-h-[36px]">
+          <p class="text-faint truncate" id="seg-src">waiting for audio…</p>
+          <p class="text-ink font-medium truncate" id="seg-out">—</p>
+        </div>
+      </div>
+    </div>`;
+  STEPS.forEach((s, i) => runStep(i));
+}
+
+function runStep(i) {
+  const s = STEPS[i];
+  let p = 0; const ticks = 10;
+  const stepPct = t => t * 10;
+  for (let t = 1; t <= ticks; t++) {
+    later(() => {
+      p = stepPct(t);
+      railState('running', i, p);
+      $('eta').textContent = `Step ${i + 1} of ${STEPS.length} · ${s.live ? `${Math.round(312 * p / 100)} / 312 segments` : s.detail} · ${Math.round(4 + i * 2 + p / 10)}s elapsed`;
+      if (s.live && t % 2 === 0) {
+        const n = Math.floor(Math.random() * SRC_LINES.length);
+        $('seg-src').textContent = `04:${12 + i} · SPEAKER 1 — ${SRC_LINES[n]}`;
+        $('seg-out').textContent = s.live === 'es' ? `— ${ES_LINES[n]}` : '…';
+        const fw = $('frame-wrap');
+        fw && (fw.innerHTML = stageFrame(SRC_LINES[n], s.live === 'es' ? ES_LINES[n] : null));
+      }
+      pushLog(`[${s.name.toLowerCase().replace(/ /g, '_')}] ${p}% — ok`);
+    }, s.dur / ticks * t);
+  }
+  later(() => {
+    if (i === STEPS.length - 1) return renderDone();
+    runStep(i + 1);
+  }, s.dur);
+}
+
+function showLogs() {
+  if (!$('logs')) {
+    document.querySelector('main').insertAdjacentHTML('beforeend',
+      `<pre id="logs" class="shrink-0 max-h-28 overflow-y-auto text-[10px] leading-relaxed font-mono text-faint bg-white border border-edge rounded-xl p-3 mt-4">—</pre>`);
+  } else { $('logs').remove(); return; }
+  pushLog('[app] logs opened');
+}
+function pushLog(msg) {
+  const el = $('logs'); if (!el) return;
+  el.textContent += (logCount++ ? '\n' : '') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderDone() {
+  cur = 'done'; clearTimers();
+  railState('done'); sideState('done');
+  $('hd-title').textContent = `${FILES[fileIdx]} — done`;
+  $('stage').innerHTML = `
+    <div class="fade-in flex flex-col h-full min-h-0">
+      <div class="flex items-center justify-between mb-4">
+        <div><h1 class="text-lg font-bold tracking-tight">Done · 16:02 total</h1>
+        <p class="text-xs text-ink2 mt-0.5">312 segments · 2 speakers · quality pass fixed 18</p></div>
+        <span class="text-xs px-2.5 py-1 rounded-full bg-cta text-white font-semibold">✓ Complete</span>
+      </div>
+      ${stageFrame(null, ES_LINES[0])}
+      <p class="mt-4 text-xs text-faint text-center shrink-0">Files are in the right rail · download all when ready</p>
+    </div>`;
+}
+
+function failRun() {
+  cur = 'failed'; clearTimers();
+  railState('failed', 2, 37); sideState('failed');
+  $('hd-title').textContent = `${FILES[fileIdx]} — failed`;
+  $('stage').innerHTML = `
+    <div class="fade-in flex flex-col h-full min-h-0">
+      <div class="flex items-center justify-between mb-4">
+        <div><h1 class="text-lg font-bold tracking-tight">Translation stopped</h1>
+        <p class="text-xs text-ink2 mt-0.5">Model out of memory at segment 118 · 12:41 elapsed</p></div>
+        <span class="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-600 font-semibold">Failed</span>
+      </div>
+      <pre class="shrink-0 flex-1 overflow-y-auto text-[11px] leading-relaxed font-mono text-faint bg-white border border-edge rounded-xl p-4">[translate] 37% — segment 117 ok
+[translate] 37% — segment 118 — CUDA error: out of memory
+[translate] run aborted (elapsed 12:41)</pre>
+      <p class="mt-3 text-xs text-ink2 text-center shrink-0">Retry from the right rail · or <button class="text-brand font-semibold hover:underline" onclick="renderIdle()">start over</button></p>
+    </div>`;
+}
+
+let cur = 'idle';
+renderIdle();
+</script>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wireframe 2 — Ops Workbench</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: { brand: '#4B286D', cta: '#2B8000', ink: '#2A2C2E', ink2: '#54595F', faint: '#9CA0A8', edge: '#E4E6EA', surface: '#F7F8FA' },
+    fontFamily: { sans: ['Inter', 'sans-serif'] }
+  }}
+}
+</script>
+<style>
+  .ph { border: 1.5px dashed #C6CAD1; background: repeating-linear-gradient(45deg, #F2F3F5, #F2F3F5 8px, #EDEFF2 8px, #EDEFF2 16px); }
+  .note { font-size: 11px; color: #9CA0A8; letter-spacing: .02em; text-transform: uppercase; font-weight: 600; }
+</style>
+</head>
+<body class="bg-surface font-sans text-ink antialiased">
+<div class="h-screen flex flex-col">
+
+  <!-- Slim top bar -->
+  <header class="h-12 shrink-0 bg-white border-b border-edge flex items-center px-4 gap-3">
+    <div class="w-6 h-6 rounded-md bg-brand flex items-center justify-center text-white text-[10px] font-bold">K</div>
+    <span class="font-bold text-sm tracking-tight">KotoSub</span>
+    <span class="mx-2 h-4 w-px bg-edge"></span>
+    <p class="note">Concept 2 — Ops Workbench · everything visible at once</p>
+    <div class="ml-auto flex items-center gap-2">
+      <button class="text-xs text-ink2 hover:text-ink px-2 py-1">Settings</button>
+      <button class="text-xs text-ink2 hover:text-ink px-2 py-1">Logs</button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex min-h-0">
+
+    <!-- LEFT RAIL: pipeline status -->
+    <aside class="w-60 shrink-0 bg-white border-r border-edge p-4 overflow-y-auto">
+      <p class="note mb-3">Pipeline</p>
+      <div class="space-y-1">
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-cta/5">
+          <span class="w-5 h-5 rounded-full bg-cta text-white flex items-center justify-center text-[10px]">✓</span>
+          <span class="text-xs font-medium">Extract audio</span>
+          <span class="ml-auto text-[10px] text-faint">0:03</span>
+        </div>
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-cta/5">
+          <span class="w-5 h-5 rounded-full bg-cta text-white flex items-center justify-center text-[10px]">✓</span>
+          <span class="text-xs font-medium">Transcribe</span>
+          <span class="ml-auto text-[10px] text-faint">8:12</span>
+        </div>
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-brand/5 ring-1 ring-brand/20">
+          <span class="w-5 h-5 rounded-full border-2 border-brand bg-white"></span>
+          <span class="text-xs font-semibold text-brand">Translate</span>
+          <span class="ml-auto text-[10px] text-brand font-semibold">68%</span>
+        </div>
+        <div class="px-2 pl-9"><div class="h-1 rounded-full bg-surface"><div class="h-full rounded-full bg-brand" style="width:68%"></div></div></div>
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg opacity-50">
+          <span class="w-5 h-5 rounded-full border-2 border-edge bg-white"></span>
+          <span class="text-xs">Quality pass</span>
+        </div>
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg opacity-50">
+          <span class="w-5 h-5 rounded-full border-2 border-edge bg-white"></span>
+          <span class="text-xs">Write subtitles</span>
+        </div>
+        <div class="flex items-center gap-2.5 px-2 py-2 rounded-lg opacity-50">
+          <span class="w-5 h-5 rounded-full border-2 border-edge bg-white"></span>
+          <span class="text-xs">Burn in</span>
+        </div>
+      </div>
+
+      <p class="note mt-6 mb-2">Source</p>
+      <div class="ph h-14 rounded-lg flex items-center justify-center text-faint text-[10px]">video thumb</div>
+      <p class="text-xs font-medium mt-2 truncate">interview-ep12.mp4</p>
+      <p class="text-[10px] text-faint">1.2 GB · 24:31 · EN → ES</p>
+    </aside>
+
+    <!-- CENTER: stage -->
+    <main class="flex-1 flex flex-col min-w-0 p-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h1 class="text-lg font-bold tracking-tight">Translating interview-ep12 → Spanish</h1>
+          <p class="text-xs text-ink2 mt-0.5">Started 14:02 · 12:41 elapsed · est. 6 min left</p>
+        </div>
+        <button class="text-xs px-3 py-1.5 rounded-lg border border-edge bg-white text-ink2 hover:text-ink">Cancel run</button>
+      </div>
+
+      <!-- stage canvas: live subtitle preview -->
+      <div class="flex-1 ph rounded-xl flex flex-col items-center justify-center gap-2 min-h-[280px]">
+        <p class="text-faint text-xs">live subtitle preview over video frame</p>
+        <div class="bg-ink/80 text-white text-sm px-4 py-1.5 rounded">— así que lo primero que hicimos fue…</div>
+      </div>
+
+      <!-- live transcript strip -->
+      <div class="mt-4 bg-white border border-edge rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <p class="note">Live segments · 214 / 312</p>
+          <p class="text-[10px] text-faint font-mono">Qwen3 · large-v3-turbo · GPU</p>
+        </div>
+        <div class="space-y-1.5 text-xs">
+          <p class="text-faint truncate">04:12 · SPEAKER 1 — "So the first thing we did was…"</p>
+          <p class="text-ink font-medium truncate">04:12 · SPEAKER 1 — "así que lo primero que hicimos fue…"</p>
+          <p class="text-faint truncate">04:19 · SPEAKER 2 — "That's when we realized…"</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT: artifacts + options drawer -->
+    <aside class="w-72 shrink-0 bg-white border-l border-edge p-4 overflow-y-auto flex flex-col">
+      <p class="note mb-3">Output</p>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5">
+          <div><p class="text-xs font-medium">Subtitles .srt</p><p class="text-[10px] text-faint">ready when run ends</p></div>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface text-faint">queued</span>
+        </div>
+        <div class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5 opacity-60">
+          <div><p class="text-xs font-medium">Web .vtt</p></div>
+          <span class="text-[10px]">…</span>
+        </div>
+        <div class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5 opacity-60">
+          <div><p class="text-xs font-medium">Burned .mp4</p></div>
+          <span class="text-[10px]">…</span>
+        </div>
+      </div>
+
+      <p class="note mt-6 mb-2">Run options</p>
+      <div class="space-y-2 text-xs">
+        <label class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5"><span>Target language</span><span class="font-semibold text-brand">Spanish ▾</span></label>
+        <label class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5"><span>Speaker names</span><span class="w-8 h-4.5 h-[18px] rounded-full bg-cta relative"><span class="absolute right-0.5 top-0.5 w-3.5 h-3.5 rounded-full bg-white"></span></span></label>
+        <label class="flex items-center justify-between border border-edge rounded-lg px-3 py-2.5"><span>Burn into video</span><span class="w-[18px] h-[18px] rounded border-2 border-edge"></span></label>
+      </div>
+
+      <div class="mt-auto pt-4">
+        <button class="w-full bg-cta text-white text-sm font-semibold py-2.5 rounded-xl" disabled>Run in progress…</button>
+        <p class="text-[10px] text-faint text-center mt-2">Drop a new file anytime — it queues</p>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

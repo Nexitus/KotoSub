@@ -3,6 +3,8 @@ import subprocess
 import os
 import shutil
 
+from app.cuda import fix_cuda_paths
+
 def check_dependencies():
     print("🔍 Checking system dependencies...")
     
@@ -33,45 +35,117 @@ def check_dependencies():
         except Exception:
             pass
 
-def fix_cuda_paths():
-    """Finds and adds NVIDIA DLLs to the PATH on Windows."""
-    if sys.platform != "win32":
-        return
+def _find_nvcc():
+    """Find nvcc.exe by checking CUDA_PATH env var and common install locations."""
+    cuda_path = os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")
+    if cuda_path:
+        nvcc = os.path.join(cuda_path, "bin", "nvcc.exe")
+        if os.path.exists(nvcc):
+            return nvcc.replace("\\", "/")
+    base = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"
+    if os.path.isdir(base):
+        for ver in sorted(os.listdir(base), reverse=True):
+            nvcc = os.path.join(base, ver, "bin", "nvcc.exe")
+            if os.path.exists(nvcc):
+                return nvcc.replace("\\", "/")
+    return None
 
-    import site
-    packages_dirs = site.getsitepackages()
-    if hasattr(site, "getusersitepackages"):
-        packages_dirs.append(site.getusersitepackages())
-    
-    nvidia_dirs = [
-        "nvidia/cudnn/bin",
-        "nvidia/cublas/bin",
-        "nvidia/cuda_runtime/bin",
-        "nvidia/cuda_nvrtc/bin"
-    ]
-    
-    for base in packages_dirs:
-        for ndir in nvidia_dirs:
-            full_path = os.path.join(base, ndir)
-            if os.path.exists(full_path):
-                os.environ["PATH"] = full_path + os.pathsep + os.environ["PATH"]
-                if hasattr(os, "add_dll_directory"):
-                    try:
-                        os.add_dll_directory(full_path)
-                    except Exception: pass
 
-def check_gpu():
-    print("🎮 Checking GPU status...")
+def install_ai_packages():
+    """
+    Install AI packages that need special handling.
+    GPU is required — no CPU fallback.
+    """
+    # --- PyTorch (CUDA required) ---
+    cuda_ok = False
     try:
         import torch
-        if torch.cuda.is_available():
-            device_name = torch.cuda.get_device_name(0)
-            print(f"✅ CUDA is available! Found GPU: {device_name}")
+        cuda_ok = torch.cuda.is_available()
+        if cuda_ok:
+            print(f"✅ PyTorch {torch.__version__} — GPU: {torch.cuda.get_device_name(0)}.")
         else:
-            print("ℹ️  CUDA not detected by PyTorch. Local GPU processing will be disabled (using CPU).")
-            print("   To enable GPU, ensure you have NVIDIA drivers and a compatible PyTorch installed.")
+            print(f"ℹ️  PyTorch {torch.__version__} is CPU-only. Upgrading to CUDA version...")
     except ImportError:
-        print("⚠️  PyTorch not installed. Local GPU features will not work.")
+        print("📦 Installing PyTorch with CUDA support...")
+
+    if not cuda_ok:
+        # Uninstall CPU version before installing CUDA version (different local version tag)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "uninstall", "torch", "torchaudio", "-y"],
+            capture_output=True
+        )
+        installed = False
+        for cu_ver in ["cu128", "cu124"]:
+            try:
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install", "-q",
+                    "torch", "torchaudio",
+                    "--index-url", f"https://download.pytorch.org/whl/{cu_ver}"
+                ])
+                import importlib
+                torch_mod = importlib.import_module("torch")
+                if torch_mod.cuda.is_available():
+                    print(f"✅ PyTorch ({cu_ver}) — GPU: {torch_mod.cuda.get_device_name(0)}.")
+                    installed = True
+                    break
+            except Exception:
+                continue
+        if not installed:
+            print("❌ Could not install PyTorch with CUDA. Check your NVIDIA drivers and re-run.")
+            sys.exit(1)
+
+    # --- llama-cpp-python (CUDA build required) ---
+    llama_cuda_ok = False
+    try:
+        import llama_cpp
+        llama_cuda_ok = llama_cpp.llama_supports_gpu_offload()
+        if llama_cuda_ok:
+            print("✅ llama-cpp-python already installed with CUDA support.")
+        else:
+            print("⚠️  llama-cpp-python is installed but has NO CUDA support (CPU-only build). Rebuilding...")
+    except ImportError:
+        print("📦 Installing llama-cpp-python (CUDA build from source — this takes a few minutes)...")
+
+    if not llama_cuda_ok:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "uninstall", "llama-cpp-python", "-y"],
+            capture_output=True
+        )
+        nvcc = _find_nvcc()
+        env = os.environ.copy()
+
+        # Passing -DCMAKE_CUDA_COMPILER explicitly bypasses CMake's VS toolset detection,
+        # which fails when the CUDA toolkit doesn't yet support the installed VS version.
+        cmake_attempts = []
+        if nvcc:
+            cmake_attempts.append(f"-DGGML_CUDA=on -DCMAKE_CUDA_COMPILER={nvcc}")
+        cmake_attempts.append("-DGGML_CUDA=on")  # default (may fail on VS 2026 + CUDA 13)
+
+        installed = False
+        for cmake_args in cmake_attempts:
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "llama-cpp-python", "--no-cache-dir"],
+                    env={**env, "CMAKE_ARGS": cmake_args}
+                )
+                # Verify the new build actually has CUDA
+                import importlib
+                lc = importlib.import_module("llama_cpp")
+                if lc.llama_supports_gpu_offload():
+                    print("✅ llama-cpp-python (CUDA) installed.")
+                    installed = True
+                    break
+                else:
+                    print(f"   Build completed but CUDA not detected. Trying next attempt...")
+            except Exception:
+                continue
+
+        if not installed:
+            print("❌ llama-cpp-python CUDA build failed.")
+            print("   Ensure Visual Studio Build Tools with 'Desktop development with C++' is installed.")
+            print("   Then re-run: python run.py")
+            sys.exit(1)
+
 
 def check_models():
     """Interactive Model Manager Menu."""
@@ -93,8 +167,8 @@ def check_models():
     while True:
         # Refresh model lists
         try:
-            llm_models = download_models.get_llm_models()
-            whisper_models = download_models.get_whisper_models()
+            llm_models = download_models.LLM_MODELS
+            whisper_models = download_models.WHISPER_MODELS
         except AttributeError:
              print("⚠️  Error fetching model lists.")
              return
@@ -113,25 +187,27 @@ def check_models():
         print("\n--- Whisper Models (Transcription) ---")
         offset = len(llm_models) + 1
         for i, model_name in enumerate(whisper_models, offset):
-            # Heuristic check for Whisper models (folder existence)
-            # We assume if any faster-whisper folder exists with the name, it's likely installed.
-            # A more robust check would use the same logic as remove_whisper_model or just check if directory exists in cache.
-            # For simplicity in this UI, checking if *any* folder matches pattern in models_dir.
             is_installed = False
+            cache_name = model_name.replace("/", "--")
             for item in os.listdir(models_dir):
-                 if "faster-whisper" in item and model_name in item and os.path.isdir(os.path.join(models_dir, item)):
+                 if cache_name in item and os.path.isdir(os.path.join(models_dir, item)):
                      is_installed = True
                      break
-            
+
             status = "✅ Installed" if is_installed else "❌ Missing"
             print(f"  {i}. Whisper {model_name:<36} {status}")
 
+        qwen_idx = offset + len(whisper_models)
+        is_installed = download_models.qwen_asr_installed()
+        status = "✅ Installed" if is_installed else "❌ Missing"
+        print(f"  {qwen_idx}. {download_models.QWEN_ASR['label']:<48} {status}")
+
         print("\n" + "-"*50)
-        print(" [A] Download All Recommended    [R] Remove All    [C] Continue    [Q] Quit")
+        print(" [A] Download All    [U] Update All (force)    [R] Remove All    [C] Continue    [Q] Quit")
         print(" (Select a number to Manage/Update specific models)")
-        
+
         choice = input("\n👉 Select an option: ").strip().upper()
-        
+
         if choice == 'Q':
             print("Exiting...")
             sys.exit(0)
@@ -149,6 +225,18 @@ def check_models():
             print("\n📥 Downloading all recommended models...")
             download_models.download_llms()
             download_models.download_whisper()
+            download_models.download_qwen_asr_model()
+            input("\nPress Enter to continue...")
+        elif choice == 'U':
+            confirm = input("\n🔄 Force re-download all models to get latest versions? (y/N): ").strip().lower()
+            if confirm in ['y', 'yes']:
+                print("\n📥 Updating all models...")
+                for model in llm_models:
+                    download_models.download_llm_model(model, force=True)
+                for model_name in whisper_models:
+                    download_models.download_whisper_model(model_name, force=True)
+                download_models.download_qwen_asr_model(force=True)
+                print("✅ All models updated.")
             input("\nPress Enter to continue...")
         elif choice == 'R':
             confirm = input("\n🗑️  Are you sure you want to remove ALL models? (y/N): ").strip().lower()
@@ -158,6 +246,7 @@ def check_models():
                     download_models.remove_llm_model(model)
                 for model_name in whisper_models:
                     download_models.remove_whisper_model(model_name)
+                download_models.remove_qwen_asr_model()
                 print("✅ All models removed.")
                 input("\nPress Enter to continue...")
         elif choice.isdigit():
@@ -188,8 +277,9 @@ def check_models():
                 
                 # Check existence again for menu logic
                 is_installed = False
+                cache_name = model_name.replace("/", "--")
                 for item in os.listdir(models_dir):
-                     if "faster-whisper" in item and model_name in item and os.path.isdir(os.path.join(models_dir, item)):
+                     if cache_name in item and os.path.isdir(os.path.join(models_dir, item)):
                          is_installed = True
                          break
                 
@@ -204,7 +294,23 @@ def check_models():
                     action = input("   [I] Install  [B] Back : ").strip().upper()
                     if action == 'I':
                         download_models.download_whisper_model(model_name)
-                        
+
+            # Handle Qwen3-ASR Selection
+            elif idx == len(llm_models) + len(whisper_models) + 1:
+                is_installed = download_models.qwen_asr_installed()
+                print(f"\nSelected: {download_models.QWEN_ASR['label']}")
+                print("   (requires the optional `qwen-asr` package: pip install qwen-asr)")
+                if is_installed:
+                    action = input("   [R] Remove  [U] Update/Verify  [B] Back : ").strip().upper()
+                    if action == 'R':
+                        download_models.remove_qwen_asr_model()
+                    elif action == 'U':
+                        download_models.download_qwen_asr_model(force=True)
+                else:
+                    action = input("   [I] Install  [B] Back : ").strip().upper()
+                    if action == 'I':
+                        download_models.download_qwen_asr_model()
+
             else:
                 print("❌ Invalid selection.")
                 import time
@@ -213,8 +319,8 @@ def check_models():
 # Run startup checks before any other app imports
 if __name__ == "__main__":
     check_dependencies()
+    install_ai_packages()
     fix_cuda_paths()
-    check_gpu()
     check_models()
     
     # Now that dependencies are checked/installed, import the app

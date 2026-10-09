@@ -5,40 +5,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KotoSub</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #F7F8FA;
-    }
-
-    .telus-purple {
-      color: #4B286D;
-    }
-
-    .bg-telus-purple {
-      background-color: #4B286D;
-    }
-
-    .telus-green {
-      color: #2B8000;
-    }
-
-    .bg-telus-green {
-      background-color: #2B8000;
-    }
-
-    .border-telus-green {
-      border-color: #2B8000;
-    }
-
-    .focus-ring-telus:focus {
-      ring-color: #2B8000;
-    }
-  </style>
-
-
+  <script>
+    // Set theme class before first paint to avoid a flash of the wrong theme.
+    (function () {
+      try {
+        var stored = localStorage.getItem('kotosub_theme');
+        var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.classList.add('dark');
+      } catch (e) { /* no-op */ }
+    })();
+  </script>
 </head>
 
 <body>

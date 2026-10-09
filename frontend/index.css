@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Semantic design tokens. Light values on :root, dark overrides on .dark
+   (class strategy — toggled by Header, persisted to localStorage, system
+   preference as default). Utilities are generated via @theme inline below.
+--------------------------------------------------------------------------- */
+:root {
+  --surface: #F7F8FA;
+  --raised: #FFFFFF;
+  --edge: #E5E7EB;
+  --edge-strong: #D1D5DB;
+  --ink: #1A1D21;
+  --ink-soft: #54595F;
+  --ink-faint: #9CA3AF;
+  --brand: #4B286D;
+  --brand-soft: #F3EDF8;
+  --action: #2B8000;
+  --action-hover: #236A00;
+  --success: #2B8000;
+  --error: #DC2626;
+  --warning: #B45309;
+  --info: #1D4ED8;
+  --stage: #101014;
+}
+
+.dark {
+  --surface: #0B1120;
+  --raised: #131A28;
+  --edge: #253044;
+  --edge-strong: #374151;
+  --ink: #F1F5F9;
+  --ink-soft: #A9B4C4;
+  --ink-faint: #64748B;
+  --brand: #A67DC8;
+  --brand-soft: rgba(166, 125, 200, 0.14);
+  --action: #4ADE80;
+  --action-hover: #22C55E;
+  --success: #4ADE80;
+  --error: #F87171;
+  --warning: #FBBF24;
+  --info: #60A5FA;
+  --stage: #050507;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-stage: var(--stage);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Custom motion for the Studio Deck stage. Purposeful only.
+--------------------------------------------------------------------------- */
+@keyframes koto-scan {
+  0%   { transform: translateY(-120%); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(420%); opacity: 0; }
+}
+.stage-scan {
+  animation: koto-scan 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes koto-slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.enter-slide-up {
+  animation: koto-slide-up 0.25s ease-out both;
+}

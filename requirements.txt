@@ -1,28 +1,21 @@
-numpy<2.0.0
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
-python-dotenv==1.0.0
-openai>=1.55.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
 ffmpeg-python==0.2.0
-gradio>=4.44.1
-pysrt==1.1.2
 python-multipart>=0.0.12
-pyannote.audio==3.1.1
-torch>=2.1.0
-torchaudio>=2.1.0
-pydub==0.25.1
-MarkupSafe~=2.0
 
 # Note: If you have whisperx installed, it may conflict with torch/torchaudio versions.
 # This app does NOT use whisperx. To resolve conflicts, run: pip uninstall whisperx
 
-faster-whisper>=0.10.0
-llama-cpp-python>=0.2.20
-
-# NVIDIA Libraries for Windows GPU support
-nvidia-cudnn-cu12>=9.0.0
-nvidia-cublas-cu12>=12.1.0
-
 tqdm>=4.66.0
+huggingface_hub>=0.20.0
+faster-whisper>=1.0.0
+
+# Optional (alternative transcription engine, Qwen3-ASR + ForcedAligner):
+#   pip install qwen-asr
+# Kept out of the default install — the Whisper path must work without it.
+
+# torch, torchaudio, and llama-cpp-python are installed by run.py
+# using special index URLs to get prebuilt CUDA wheels.
+# Do NOT add them here — pip will try to build from source and fail.

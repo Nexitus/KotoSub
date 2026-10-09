@@ -18,3 +18,13 @@ user_config.json
 *.mkv
 *.srt
 *.wav
+.env.*
+.claude
+.agents
+.codex
+.aws
+venv
+.venv
+env
+graphify-out
+frontend/dist
