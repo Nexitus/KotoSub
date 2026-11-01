@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface LogsConsoleProps {
   logs: string[];
@@ -25,33 +27,34 @@ const LogsConsole: React.FC<LogsConsoleProps> = ({ logs, ariaLabel = 'Processing
   };
 
   return (
-    <div className="bg-raised border border-edge rounded-2xl overflow-hidden">
-      <div className="flex justify-between items-center px-6 pt-5 pb-3">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Live Logs</h3>
+    <Card className="gap-3 py-5">
+      <CardHeader className="px-5">
+        <CardTitle className="text-sm">Live Logs</CardTitle>
         {!autoScroll && (
-          <button
-            onClick={() => setAutoScroll(true)}
-            className="px-3 py-1 text-xs font-bold bg-brand-soft text-brand rounded-lg hover:brightness-95 dark:hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand rounded-lg"
-          >
-            Resume auto-scroll
-          </button>
+          <CardAction>
+            <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setAutoScroll(true)}>
+              Resume auto-scroll
+            </Button>
+          </CardAction>
         )}
-      </div>
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className={`font-mono text-[11px] leading-relaxed text-ink-soft px-6 pb-5 space-y-1 overflow-y-auto max-h-[320px]`}
-        aria-label={ariaLabel}
-        role="log"
-        aria-live="off"
-      >
-        {logs.length > 0 ? (
-          logs.map((log, i) => <p key={i}>{log}</p>)
-        ) : (
-          <p className="italic opacity-50">Waiting for process logs…</p>
-        )}
-      </div>
-    </div>
+      </CardHeader>
+      <CardContent className="px-5">
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="font-mono text-[11px] leading-relaxed text-muted-foreground space-y-1 overflow-y-auto max-h-[320px]"
+          aria-label={ariaLabel}
+          role="log"
+          aria-live="off"
+        >
+          {logs.length > 0 ? (
+            logs.map((log, i) => <p key={i}>{log}</p>)
+          ) : (
+            <p className="italic opacity-50">Waiting for process logs…</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 

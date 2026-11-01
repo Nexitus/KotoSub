@@ -1,29 +1,30 @@
 import React from 'react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 interface CheckboxFieldProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
   description?: string;
-  id?: string;
+  id: string;
 }
 
 const CheckboxField: React.FC<CheckboxFieldProps> = ({ checked, onChange, label, description, id }) => (
-  <label className="flex items-start space-x-3 cursor-pointer group" htmlFor={id}>
-    <input
+  <div className="flex items-start gap-3">
+    <Checkbox
       id={id}
-      type="checkbox"
-      className="w-5 h-5 mt-0.5 rounded border-edge-strong accent-brand focus:ring-brand shrink-0"
       checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
+      onCheckedChange={(v) => onChange(v === true)}
+      className="mt-0.5"
     />
-    <div className="flex flex-col">
-      <span className="font-medium text-ink">{label}</span>
-      {description && (
-        <span className="text-xs text-ink-faint">{description}</span>
-      )}
+    <div className="grid gap-1">
+      <Label htmlFor={id} className="font-medium text-foreground">
+        {label}
+      </Label>
+      {description && <p className="text-xs text-muted-foreground">{description}</p>}
     </div>
-  </label>
+  </div>
 );
 
 export default CheckboxField;

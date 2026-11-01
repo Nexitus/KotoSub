@@ -1,23 +1,27 @@
 import React from 'react';
+import { CircleAlert, TriangleAlert } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-type BannerVariant = 'error' | 'info' | 'success' | 'warning';
+type BannerVariant = 'error' | 'warning';
 
 interface BannerProps {
   children: React.ReactNode;
   variant?: BannerVariant;
 }
 
-const variantClasses: Record<BannerVariant, string> = {
-  error: 'bg-error/10 border-error/30 text-error',
-  info: 'bg-info/10 border-info/30 text-info',
-  success: 'bg-success/10 border-success/30 text-success',
-  warning: 'bg-warning/10 border-warning/30 text-warning',
+const Banner: React.FC<BannerProps> = ({ children, variant = 'error' }) => {
+  const Icon = variant === 'error' ? CircleAlert : TriangleAlert;
+  return (
+    <Alert
+      variant={variant === 'error' ? 'destructive' : 'default'}
+      className={variant === 'warning' ? 'border-warning/30 text-warning' : undefined}
+    >
+      <Icon />
+      <AlertDescription className={variant === 'warning' ? 'text-warning' : undefined}>
+        {children}
+      </AlertDescription>
+    </Alert>
+  );
 };
-
-const Banner: React.FC<BannerProps> = ({ children, variant = 'error' }) => (
-  <div className={`p-4 border rounded-xl text-sm font-medium ${variantClasses[variant]}`}>
-    {children}
-  </div>
-);
 
 export default Banner;

@@ -68,7 +68,7 @@ export interface LiveStatusResponse {
   processed_until: number;
   segments: LiveSegment[];
   new_segment_count: number;
-  srt_file_path: string | null;
+  srt_download_token: string | null;
   remuxed: boolean;
   hls: boolean;
   playlist_ready: boolean;
@@ -97,4 +97,9 @@ export interface LiveStartResponse {
   remuxed: boolean;
   transcoding: boolean; // returned by backend; missing in older backend versions
   hls: boolean; // playback served via HLS event playlist (needs conversion)
+}
+
+export interface LiveStopResponse {
+  status: 'stopped' | 'stopping';
+  srt_download_token?: string;
 }

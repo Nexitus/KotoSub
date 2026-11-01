@@ -1,4 +1,4 @@
-import { LiveSessionConfig, LiveStartResponse, LiveStatusResponse, SubtitleConfig } from '../types';
+import { LiveSessionConfig, LiveStartResponse, LiveStatusResponse, LiveStopResponse, SubtitleConfig } from '../types';
 
 export type ProcessingStatus = 'idle' | 'processing' | 'completed' | 'error';
 
@@ -37,7 +37,8 @@ export const api = {
             });
 
             if (!response.ok) {
-                throw new Error(`Upload failed: ${response.statusText}`);
+                const err: { detail?: string } = await response.json().catch(() => ({}));
+                throw new Error(err.detail || `Upload failed: ${response.statusText}`);
             }
 
             if (!response.body) {
@@ -177,10 +178,12 @@ export const api = {
         return response.json();
     },
 
-    liveStop: async (sessionId: string): Promise<{ srt_file_path: string }> => {
+    liveStop: async (sessionId: string): Promise<LiveStopResponse> => {
         const response = await fetch(`${API_BASE}/api/live/stop/${sessionId}`, {
             method: 'POST',
         });
+        // 202 = worker still exiting; caller retries until status is "stopped".
+        if (response.status === 202) return response.json();
         if (!response.ok) throw new Error(`Stop failed: ${response.statusText}`);
         return response.json();
     },

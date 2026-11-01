@@ -1,73 +1,115 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ---------------------------------------------------------------------------
-   Semantic design tokens. Light values on :root, dark overrides on .dark
-   (class strategy — toggled by Header, persisted to localStorage, system
-   preference as default). Utilities are generated via @theme inline below.
+   Design tokens: shadcn zinc (Kokonut's base) + KotoSub brand/action tokens.
+   Light values on :root, dark overrides on .dark (class strategy — toggled by
+   the Kokonut switch, persisted to localStorage, system preference as default).
+   brand = active/selected only; action = primary CTA only.
 --------------------------------------------------------------------------- */
 :root {
-  --surface: #F7F8FA;
-  --raised: #FFFFFF;
-  --edge: #E5E7EB;
-  --edge-strong: #D1D5DB;
-  --ink: #1A1D21;
-  --ink-soft: #54595F;
-  --ink-faint: #9CA3AF;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --radius: 0.625rem;
+
   --brand: #4B286D;
-  --brand-soft: #F3EDF8;
   --action: #2B8000;
   --action-hover: #236A00;
-  --success: #2B8000;
-  --error: #DC2626;
-  --warning: #B45309;
-  --info: #1D4ED8;
+  --action-foreground: #FFFFFF;
   --stage: #101014;
+  --success: oklch(59.6% 0.145 163.225);
+  --warning: oklch(66.6% 0.179 58.318);
 }
 
 .dark {
-  --surface: #0B1120;
-  --raised: #131A28;
-  --edge: #253044;
-  --edge-strong: #374151;
-  --ink: #F1F5F9;
-  --ink-soft: #A9B4C4;
-  --ink-faint: #64748B;
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+
   --brand: #A67DC8;
-  --brand-soft: rgba(166, 125, 200, 0.14);
   --action: #4ADE80;
   --action-hover: #22C55E;
-  --success: #4ADE80;
-  --error: #F87171;
-  --warning: #FBBF24;
-  --info: #60A5FA;
+  --action-foreground: #052E16;
   --stage: #050507;
+  --success: oklch(76.5% 0.177 163.223);
+  --warning: oklch(82.8% 0.189 84.429);
 }
 
 @theme inline {
-  --color-surface: var(--surface);
-  --color-raised: var(--raised);
-  --color-edge: var(--edge);
-  --color-edge-strong: var(--edge-strong);
-  --color-ink: var(--ink);
-  --color-ink-soft: var(--ink-soft);
-  --color-ink-faint: var(--ink-faint);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --color-brand: var(--brand);
-  --color-brand-soft: var(--brand-soft);
   --color-action: var(--action);
   --color-action-hover: var(--action-hover);
+  --color-action-foreground: var(--action-foreground);
   --color-success: var(--success);
-  --color-error: var(--error);
   --color-warning: var(--warning);
-  --color-info: var(--info);
   --color-stage: var(--stage);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  background-color: var(--surface);
-  color: var(--ink);
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

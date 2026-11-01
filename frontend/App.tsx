@@ -1,10 +1,11 @@
 
-import React, { useState } from 'react';
-import { ViewType, AppSettings, ProcessingStep } from './types';
+import React, { useEffect, useRef, useState } from 'react';
+import { ViewType, AppSettings, ProcessingStep, SubtitleConfig } from './types';
 import Header from './components/Header';
 import Translator from './components/Translator';
 import Settings from './components/Settings';
-import { api } from './services/api';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { api, ProgressEvent } from './services/api';
 
 const SETTINGS_KEY = 'kotosub_app_settings_v1';
 
@@ -51,8 +52,36 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [steps, setSteps] = useState<ProcessingStep[]>(IDLE_STEPS);
   const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [liveSegment, setLiveSegment] = useState<{ original: string; text: string; speaker: string | null } | null>(null);
+  const streamErrorHandledRef = useRef(false);
+
+  // Saved model selections are validated against the same registry Settings reads,
+  // so a new model in download_models.py never needs a frontend allowlist edit.
+  useEffect(() => {
+    let cancelled = false;
+    api.getModels()
+      .then(models => {
+        if (cancelled) return;
+        const whisperValues = models.whisper_models.map(m => m.value);
+        const llmFiles = new Set(models.llm_models.map(m => `${m.repo}/${m.file}`));
+        if (!whisperValues.length || !llmFiles.size) return;
+        setSettingsState(prev => {
+          const whisperValid = whisperValues.includes(prev.localWhisperModel);
+          const llmValid = llmFiles.has(`${prev.localLlmModel}/${prev.localLlmFile}`);
+          if (whisperValid && llmValid) return prev;
+          const next: AppSettings = {
+            ...prev,
+            localWhisperModel: whisperValid ? prev.localWhisperModel : DEFAULT_SETTINGS.localWhisperModel,
+            localLlmModel: llmValid ? prev.localLlmModel : DEFAULT_SETTINGS.localLlmModel,
+            localLlmFile: llmValid ? prev.localLlmFile : DEFAULT_SETTINGS.localLlmFile
+          };
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+          return next;
+        });
+      })
+      .catch(e => console.warn('Could not validate saved models against /api/models', e));
+    return () => { cancelled = true; };
+  }, []);
 
   // Wrapper to save settings
   const onSaveSettings = (newSettings: AppSettings) => {
@@ -60,7 +89,22 @@ const App: React.FC = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
   };
 
-  const updateStepsFromEvent = (event: any) => {
+  const updateStepsFromEvent = (event: ProgressEvent) => {
+    if (event.status === 'error') {
+      // C4 error event: surface the message, freeze the active step as failed.
+      streamErrorHandledRef.current = true;
+      setError(event.message);
+      setLogs(prev => [...prev, `❌ ERROR: ${event.message}`]);
+      setSteps(prev => {
+        const active = prev.findIndex(s => s.status === 'processing');
+        if (active === -1) return prev;
+        const next = [...prev];
+        next[active] = { ...next[active], status: 'error' };
+        return next;
+      });
+      return;
+    }
+
     // Map backend steps to UI step indices
     const stepIdMap: Record<string, number> = {
       'validation': 0, 'extraction': 0,
@@ -99,13 +143,13 @@ const App: React.FC = () => {
     }
   };
 
-  const startTranslation = async (file: File, config: any) => {
+  const startTranslation = async (file: File, config: SubtitleConfig) => {
+    streamErrorHandledRef.current = false;
     setIsProcessing(true);
     setError(null);
     setResult(null);
     setLiveSegment(null);
     setStartedAt(Date.now());
-    setFinishedAt(null);
     setSteps(prev => prev.map(s => ({ ...s, progress: 0, status: 'idle' })));
 
     try {
@@ -122,18 +166,23 @@ const App: React.FC = () => {
           llmModel: settings.localLlmModel,
           localLlmFile: settings.localLlmFile,
           outputDir: settings.outputDir,
-          useGpuEncoding: settings.useGpuEncoding
+          useGpuEncoding: settings.useGpuEncoding,
+          outputSuffix: settings.outputSuffix,
+          includeLanguageInName: settings.includeLanguageInName
         },
         updateStepsFromEvent
       );
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      // Add error to logs so it persists
-      setLogs(prev => [...prev, `❌ ERROR: ${errorMessage}`]);
+      // api.translateStream already emitted a synthetic error event for stream
+      // failures; avoid duplicating the message in that case.
+      if (!streamErrorHandledRef.current) {
+        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(errorMessage);
+        // Add error to logs so it persists
+        setLogs(prev => [...prev, `❌ ERROR: ${errorMessage}`]);
+      }
     } finally {
       setIsProcessing(false);
-      setFinishedAt(Date.now());
     }
   };
 
@@ -143,15 +192,18 @@ const App: React.FC = () => {
     setLiveSegment(null);
     setSteps(IDLE_STEPS);
     setStartedAt(null);
-    setFinishedAt(null);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface">
-      <Header activeView={activeView} onViewChange={setActiveView} />
+    <Tabs
+      value={activeView}
+      onValueChange={(v) => setActiveView(v as ViewType)}
+      className="min-h-screen gap-0 bg-background"
+    >
+      <Header />
 
       <main className="flex-grow container mx-auto px-4 sm:px-6 py-6 max-w-7xl">
-        {activeView === ViewType.TRANSLATOR ? (
+        <TabsContent value={ViewType.TRANSLATOR}>
           <Translator
             settings={settings}
             isProcessing={isProcessing}
@@ -160,20 +212,20 @@ const App: React.FC = () => {
             result={result}
             error={error}
             startedAt={startedAt}
-            finishedAt={finishedAt}
             liveSegment={liveSegment}
             onStart={startTranslation}
             onReset={resetJob}
           />
-        ) : (
+        </TabsContent>
+        <TabsContent value={ViewType.SETTINGS}>
           <Settings settings={settings} onSave={onSaveSettings} />
-        )}
+        </TabsContent>
       </main>
 
-      <footer className="py-4 border-t border-edge text-center text-xs text-ink-faint">
+      <footer className="border-t py-4 text-center text-xs text-muted-foreground">
         KotoSub · Experimental
       </footer>
-    </div>
+    </Tabs>
   );
 };
 

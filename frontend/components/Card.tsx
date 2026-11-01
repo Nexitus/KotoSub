@@ -1,4 +1,5 @@
 import React from 'react';
+import { Card as UICard, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface CardProps {
   title?: string;
@@ -7,16 +8,14 @@ interface CardProps {
 
 const Card: React.FC<CardProps> = ({ title, children }) => {
   return (
-    <div className="bg-raised border border-edge rounded-2xl shadow-sm overflow-hidden">
+    <UICard className="gap-4 py-5">
       {title && (
-        <div className="px-6 pt-5 pb-1">
-          <p className="text-xs font-bold uppercase tracking-widest text-ink-faint">{title}</p>
-        </div>
+        <CardHeader className="px-5">
+          <CardTitle className="text-sm">{title}</CardTitle>
+        </CardHeader>
       )}
-      <div className={title ? 'px-6 pt-3 pb-6' : 'p-6'}>
-        {children}
-      </div>
-    </div>
+      <CardContent className="px-5">{children}</CardContent>
+    </UICard>
   );
 };
 

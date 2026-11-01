@@ -1,4 +1,5 @@
 import React from 'react';
+import { Label } from '@/components/ui/label';
 
 interface FormLabelProps {
   children: React.ReactNode;
@@ -6,12 +7,9 @@ interface FormLabelProps {
 }
 
 const FormLabel: React.FC<FormLabelProps> = ({ children, htmlFor }) => (
-  <label
-    htmlFor={htmlFor}
-    className="block text-xs font-bold uppercase tracking-wider text-ink-faint mb-2"
-  >
+  <Label htmlFor={htmlFor} className="mb-2 text-xs font-medium text-muted-foreground">
     {children}
-  </label>
+  </Label>
 );
 
 export default FormLabel;

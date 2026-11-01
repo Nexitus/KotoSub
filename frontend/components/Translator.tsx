@@ -1,16 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Check, Circle, Download, Loader2, XCircle, type LucideIcon } from 'lucide-react';
 import { AppSettings, SubtitleConfig, ProcessingStep, LiveStartResponse, LiveStatusResponse } from '../types';
-import { SOURCE_LANGUAGES, LOOKAHEAD_PRESETS, ICONS } from '../constants';
+import { SOURCE_LANGUAGES, LOOKAHEAD_PRESETS } from '../constants';
 import { api } from '../services/api';
 import StageCanvas, { StageMode } from './StageCanvas';
-import StepRail from './StepRail';
 import OptionsDrawer from './OptionsDrawer';
 import ResultsPanel from './ResultsPanel';
 import LogsConsole from './LogsConsole';
 import Card from './Card';
 import Banner from './ui/Banner';
 import FormLabel from './ui/FormLabel';
-import Select from './ui/Select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 
 interface TranslatorProps {
   settings: AppSettings;
@@ -20,7 +24,6 @@ interface TranslatorProps {
   result: any;
   error: string | null;
   startedAt: number | null;
-  finishedAt: number | null;
   liveSegment: { original: string; text: string; speaker: string | null } | null;
   onStart: (file: File, config: SubtitleConfig) => void;
   onReset: () => void;
@@ -37,11 +40,122 @@ const formatTime = (sec: number) => {
 
 const describeError = (raw: string): string => {
   const lower = raw.toLowerCase();
+  if (lower.includes('already using the gpu')) {
+    return 'The GPU is busy with another job. Only one translation runs at a time — wait for it to finish, then try again.';
+  }
+  if (lower.includes('still stopping')) {
+    return 'The previous live session is still stopping. Try again in a moment.';
+  }
   if (lower.includes('file not found')) return 'Video file not found. Check the path and try again.';
   if (lower.includes('ffmpeg')) return 'FFmpeg is required but could not run. Check the backend installation.';
   if (lower.includes('codec')) return 'The video codec is not supported for in-browser playback.';
   if (lower.includes('permission denied') || lower.includes('access denied')) return 'Access to the video file was denied.';
   return raw;
+};
+
+const formatDuration = (ms: number) => {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s.toString().padStart(2, '0')}s`;
+};
+
+const STEP_ICON: Record<ProcessingStep['status'], LucideIcon> = {
+  idle: Circle,
+  processing: Loader2,
+  completed: Check,
+  error: XCircle,
+};
+
+const STEP_LABEL_COLORS: Record<ProcessingStep['status'], string> = {
+  completed: 'text-success',
+  error: 'text-destructive',
+  processing: 'text-brand',
+  idle: 'text-muted-foreground',
+};
+
+const STEP_FILLS: Record<ProcessingStep['status'], string> = {
+  completed: '[&_[data-slot=progress-indicator]]:bg-success',
+  error: '[&_[data-slot=progress-indicator]]:bg-destructive',
+  processing: '[&_[data-slot=progress-indicator]]:bg-brand',
+  idle: '[&_[data-slot=progress-indicator]]:bg-muted-foreground',
+};
+
+interface PipelineProps {
+  steps: ProcessingStep[];
+  startedAt: number | null;
+  endedAt: number | null;
+  failed: boolean;
+}
+
+const Pipeline: React.FC<PipelineProps> = ({ steps, startedAt, endedAt, failed }) => {
+  const [now, setNow] = useState(() => Date.now());
+  const running = startedAt !== null && endedAt === null;
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  const anyError = failed || steps.some(s => s.status === 'error');
+  const allDone = steps.every(s => s.status === 'completed');
+  const overallStatus: ProcessingStep['status'] = anyError ? 'error' : allDone ? 'completed' : 'processing';
+  const overall = Math.min(
+    100,
+    Math.round(steps.reduce((acc, s) => acc + s.progress, 0) / Math.max(steps.length, 1))
+  );
+
+  const elapsed = (() => {
+    if (startedAt === null) return null;
+    if (endedAt !== null) {
+      const dur = formatDuration(endedAt - startedAt);
+      return failed ? `Stopped after ${dur}` : `Done in ${dur}`;
+    }
+    return formatDuration(now - startedAt);
+  })();
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-between items-baseline">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Progress</h3>
+        {elapsed && (
+          <span
+            className={cn(
+              'text-xs font-semibold tabular-nums',
+              failed ? 'text-destructive' : endedAt !== null ? 'text-success' : 'text-muted-foreground'
+            )}
+          >
+            {elapsed}
+          </span>
+        )}
+      </div>
+
+      <Progress value={overall} className={cn('h-2.5 bg-muted', STEP_FILLS[overallStatus])} />
+
+      <div className="space-y-4" role="list" aria-label="Processing steps">
+        {steps.map(step => {
+          const Icon = STEP_ICON[step.status];
+          return (
+            <div key={step.id} className="space-y-2" role="listitem">
+              <div className="flex justify-between items-center text-sm">
+                <span className={cn('font-semibold flex items-center gap-2', STEP_LABEL_COLORS[step.status])}>
+                  <Icon aria-hidden="true" className={cn('size-4', step.status === 'processing' && 'animate-spin')} />
+                  {step.label}
+                </span>
+                <span className="text-muted-foreground text-xs tabular-nums" aria-label={`${step.progress}%`}>
+                  {step.progress}%
+                </span>
+              </div>
+              <Progress value={step.progress} className={cn('h-1.5 bg-muted', STEP_FILLS[step.status])} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 const Translator: React.FC<TranslatorProps> = ({
@@ -52,7 +166,6 @@ const Translator: React.FC<TranslatorProps> = ({
   result,
   error,
   startedAt,
-  finishedAt,
   liveSegment,
   onStart,
   onReset,
@@ -77,8 +190,9 @@ const Translator: React.FC<TranslatorProps> = ({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveStatusResponse | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
-  const [stoppedSrt, setStoppedSrt] = useState<string | null>(null);
+  const [stoppedSrtToken, setStoppedSrtToken] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pollRef = useRef<number | null>(null);
@@ -100,7 +214,7 @@ const Translator: React.FC<TranslatorProps> = ({
 
   // New file clears any finished live session leftovers
   useEffect(() => {
-    setStoppedSrt(null);
+    setStoppedSrtToken(null);
     setLiveError(null);
   }, [file]);
 
@@ -144,10 +258,10 @@ const Translator: React.FC<TranslatorProps> = ({
   };
 
   const startLive = async () => {
-    if (!file) return;
+    if (!file || isProcessing) return;
     setIsStarting(true);
     setLiveError(null);
-    setStoppedSrt(null);
+    setStoppedSrtToken(null);
     try {
       const res: LiveStartResponse = await api.liveStartUpload(file, {
         source_lang: config.sourceLang,
@@ -180,14 +294,33 @@ const Translator: React.FC<TranslatorProps> = ({
   const stopLive = async () => {
     if (!sessionId) return;
     clearPolling();
+    setIsStopping(true);
+    let token: string | null = null;
     try {
-      const r = await api.liveStop(sessionId);
-      setStoppedSrt(r.srt_file_path);
+      let r = await api.liveStop(sessionId);
+      // 202: the worker has not exited yet; keep retrying until cleanup is done.
+      while (r.status === 'stopping') {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        r = await api.liveStop(sessionId);
+      }
+      token = r.srt_download_token ?? null;
     } catch { /* session already gone */ }
+    setStoppedSrtToken(token);
     setSessionId(null);
+    setIsStopping(false);
   };
 
   useEffect(() => () => clearPolling(), []);
+
+  // App records only the start time; snapshot the moment processing stops so the
+  // pipeline can show "Done in" instead of ticking forever.
+  const [endedAt, setEndedAt] = useState<{ startedAt: number; at: number } | null>(null);
+  useEffect(() => {
+    if (startedAt === null) setEndedAt(null);
+    else if (!isProcessing) {
+      setEndedAt(prev => (prev?.startedAt === startedAt ? prev : { startedAt, at: Date.now() }));
+    }
+  }, [startedAt, isProcessing]);
 
   /* ---------- derived ---------- */
 
@@ -203,13 +336,14 @@ const Translator: React.FC<TranslatorProps> = ({
     : 'empty';
 
   const resultUrl = useMemo(
-    () => (result?.video_output ? `/api/download?path=${encodeURIComponent(result.video_output)}` : null),
+    () => (result?.downloads?.video ? `/api/download?token=${encodeURIComponent(result.downloads.video)}` : null),
     [result]
   );
 
   const latestLog = isProcessing && logs.length > 0 ? logs[logs.length - 1] : null;
   const hasActivity = isProcessing || startedAt !== null;
   const configVisible = !isProcessing && !result && !liveRunning;
+  const pipelineEndedAt = endedAt !== null && endedAt.startedAt === startedAt ? endedAt.at : null;
 
   const currentPosition = liveRunning ? (videoRef.current?.currentTime ?? 0) : 0;
   const currentLiveSegment = liveRunning
@@ -220,8 +354,10 @@ const Translator: React.FC<TranslatorProps> = ({
     : [];
   const bufferHealth = liveStatus?.buffer_health_seconds ?? 0;
   const bufferFill = Math.min(100, (bufferHealth / lookahead) * 100);
-  const bufferColor = bufferHealth > 15 ? 'bg-success' : bufferHealth >= 5 ? 'bg-warning' : 'bg-error';
-  const srtPath = liveStatus?.srt_file_path ?? stoppedSrt;
+  const bufferColor = bufferHealth > 15 ? 'bg-success' : bufferHealth >= 5 ? 'bg-warning' : 'bg-destructive';
+  // The token is registered at session start but the file only exists after the
+  // first write (the route 404s until then), so gate the link on real subtitles.
+  const srtToken = (liveStatus?.segments?.length ? liveStatus.srt_download_token : null) ?? stoppedSrtToken;
   const displayLiveError = liveError || liveStatus?.error || null;
   const friendlyLiveError = displayLiveError ? describeError(displayLiveError) : null;
 
@@ -247,42 +383,42 @@ const Translator: React.FC<TranslatorProps> = ({
         {liveRunning ? (
           <Card title="Live session">
             <div className="space-y-3">
-              <div className="flex justify-between text-xs font-semibold text-ink-soft">
+              <div className="flex justify-between text-xs font-semibold text-muted-foreground">
                 <span>Buffer</span>
                 <span className="tabular-nums">{bufferHealth.toFixed(0)}s ahead</span>
               </div>
-              <div className="w-full h-2 bg-edge/60 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                 <div className={`h-full rounded-full transition-all ${bufferColor}`} style={{ width: `${bufferFill}%` }} />
               </div>
-              <p className="text-xs text-ink-faint">
+              <p className="text-xs text-muted-foreground">
                 {liveStatus ? `${liveStatus.segments.length} subtitles generated` : 'Waiting for status…'}
               </p>
             </div>
           </Card>
         ) : hasActivity ? (
           <Card>
-            <StepRail steps={steps} startedAt={startedAt} finishedAt={finishedAt} failed={!!error && !isProcessing} />
+            <Pipeline steps={steps} startedAt={startedAt} endedAt={pipelineEndedAt} failed={!!error && !isProcessing} />
           </Card>
         ) : null}
         <Card title="Engine">
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between gap-3">
-              <dt className="text-ink-faint">Transcription</dt>
-              <dd className="font-semibold text-ink truncate">{settings.localWhisperModel}</dd>
+              <dt className="text-muted-foreground">Transcription</dt>
+              <dd className="font-semibold text-foreground truncate">{settings.localWhisperModel}</dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-ink-faint">Translation</dt>
-              <dd className="font-semibold text-ink truncate font-mono text-xs pt-0.5">{settings.localLlmFile}</dd>
+              <dt className="text-muted-foreground">Translation</dt>
+              <dd className="font-semibold text-foreground truncate font-mono text-xs pt-0.5">{settings.localLlmFile}</dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-ink-faint">GPU encoding</dt>
-              <dd className={`font-semibold ${settings.useGpuEncoding ? 'text-success' : 'text-ink-faint'}`}>
+              <dt className="text-muted-foreground">GPU encoding</dt>
+              <dd className={`font-semibold ${settings.useGpuEncoding ? 'text-success' : 'text-muted-foreground'}`}>
                 {settings.useGpuEncoding ? 'On' : 'Off'}
               </dd>
             </div>
           </dl>
-          <p className="text-xs text-ink-faint mt-4">
-            Change models in <span className="font-semibold text-ink-soft">Settings</span>.
+          <p className="text-xs text-muted-foreground mt-4">
+            Change models in <span className="font-semibold text-foreground">Settings</span>.
           </p>
         </Card>
         {(hasActivity || liveRunning) && (
@@ -294,8 +430,8 @@ const Translator: React.FC<TranslatorProps> = ({
       <main className="space-y-5 order-1 lg:order-2 min-w-0">
         {stageMode === 'empty' && (
           <div className="enter-slide-up">
-            <h2 className="text-xl font-bold text-ink">Studio-grade subtitles in minutes.</h2>
-            <p className="text-sm text-ink-soft mt-1">Drop a video and go — everything runs locally on your machine.</p>
+            <h2 className="text-xl font-bold text-foreground">Studio-grade subtitles in minutes.</h2>
+            <p className="text-sm text-muted-foreground mt-1">Drop a video and go — everything runs locally on your machine.</p>
           </div>
         )}
 
@@ -321,23 +457,23 @@ const Translator: React.FC<TranslatorProps> = ({
         />
 
         {liveRunning && liveStatus?.models_loading && (
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-soft border border-brand/20">
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-accent border border-border">
             <span className="h-4 w-4 rounded-full border-2 border-brand border-t-transparent animate-spin shrink-0" aria-hidden="true" />
-            <p className="text-sm font-medium text-brand">
+            <p className="text-sm font-medium text-foreground">
               Loading AI models — press play now, first subtitles will appear once ready…
             </p>
           </div>
         )}
         {liveRunning && liveStatus?.remuxed && (
-          <p className="text-xs text-ink-faint">Video was remuxed to MP4 for browser playback (no quality loss).</p>
+          <p className="text-xs text-muted-foreground">Video was remuxed to MP4 for browser playback (no quality loss).</p>
         )}
 
         {upcoming.length > 0 && (
           <Card title="Upcoming subtitles">
             <ul className="space-y-2">
               {upcoming.map((seg, i) => (
-                <li key={i} className="flex items-baseline gap-2 text-sm text-ink-soft">
-                  <span className="font-mono text-xs shrink-0 text-ink-faint tabular-nums">[{formatTime(seg.start)}]</span>
+                <li key={i} className="flex items-baseline gap-2 text-sm text-muted-foreground">
+                  <span className="font-mono text-xs shrink-0 text-muted-foreground tabular-nums">[{formatTime(seg.start)}]</span>
                   <span className="truncate">{seg.text}</span>
                 </li>
               ))}
@@ -350,17 +486,22 @@ const Translator: React.FC<TranslatorProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
               <div>
                 <FormLabel htmlFor="source-lang">From</FormLabel>
-                <Select id="source-lang" value={config.sourceLang} onChange={(e) => set('sourceLang', e.target.value)}>
-                  {SOURCE_LANGUAGES.map(l => <option key={l.value + l.label} value={l.value}>{l.label}</option>)}
+                <Select value={config.sourceLang} onValueChange={(v) => set('sourceLang', v)}>
+                  <SelectTrigger id="source-lang" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="hidden sm:flex pb-3 text-ink-faint justify-center" aria-hidden="true">
-                <ICONS.ArrowRight />
+              <div className="hidden sm:flex pb-3 text-muted-foreground justify-center" aria-hidden="true">
+                <ArrowRight className="size-5" />
               </div>
               <div>
                 <FormLabel>Into</FormLabel>
                 <div
-                  className="w-full bg-raised border border-edge rounded-lg px-4 py-3 text-ink select-none"
+                  className="w-full bg-card border border-border rounded-lg px-4 py-3 text-foreground select-none"
                   aria-label="Target language"
                 >
                   English
@@ -378,10 +519,10 @@ const Translator: React.FC<TranslatorProps> = ({
                     key={p.value}
                     onClick={() => setLookahead(p.value)}
                     aria-pressed={lookahead === p.value}
-                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                       lookahead === p.value
-                        ? 'bg-brand-soft border-brand/40 text-brand shadow-sm'
-                        : 'bg-raised border-edge text-ink-faint hover:border-brand/40'
+                        ? 'bg-brand/10 border-brand/40 text-brand shadow-sm'
+                        : 'bg-card border-border text-muted-foreground hover:border-brand/40'
                     }`}
                   >
                     {p.label.split(' ')[0]}
@@ -395,12 +536,9 @@ const Translator: React.FC<TranslatorProps> = ({
                 <div className="flex items-center justify-between gap-4">
                   <span>{error}</span>
                   {file && (
-                    <button
-                      onClick={() => onStart(file, config)}
-                      className="shrink-0 text-xs font-bold underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current rounded"
-                    >
+                    <Button size="sm" variant="outline" onClick={() => onStart(file, config)}>
                       Retry
-                    </button>
+                    </Button>
                   )}
                 </div>
               </Banner>
@@ -429,96 +567,123 @@ const Translator: React.FC<TranslatorProps> = ({
           <Card>
             <ResultsPanel result={result} onReset={onReset} />
           </Card>
-        ) : liveRunning || stoppedSrt ? (
+        ) : liveRunning || stoppedSrtToken ? (
           <>
             <Card title="Output">
-              {srtPath ? (
-                <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl">
+              {srtToken ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
                   <div className="min-w-0">
-                    <p className="font-semibold text-ink truncate text-sm">{srtPath.split(/[/\\]/).pop()}</p>
-                    <p className="text-xs text-ink-faint">Live subtitles (SRT)</p>
+                    <p className="font-semibold text-foreground truncate text-sm">Live subtitles</p>
+                    <p className="text-xs text-muted-foreground">SRT file, updates while the session runs</p>
                   </div>
-                  <a
-                    href={`/api/download?path=${encodeURIComponent(srtPath)}`}
-                    className="shrink-0 inline-flex items-center gap-1.5 text-sm font-bold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 rounded"
-                    download
-                  >
-                    <ICONS.Download />
-                    Download
-                  </a>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={`/api/download?token=${encodeURIComponent(srtToken)}`} download>
+                      <Download />
+                      Download
+                    </a>
+                  </Button>
                 </div>
               ) : (
-                <p className="text-xs text-ink-faint leading-relaxed">SRT file will appear here once subtitles are generated.</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">SRT file will appear here once subtitles are generated.</p>
               )}
             </Card>
             {liveRunning ? (
-              <button
+              <Button
+                variant="outline"
+                size="lg"
+                className="h-12 w-full text-base border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={stopLive}
-                className="w-full py-4 rounded-xl bg-transparent text-error border-2 border-error/40 font-bold text-lg transition-all hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+                disabled={isStopping}
               >
-                Stop
-              </button>
+                {isStopping ? 'Stopping…' : 'Stop'}
+              </Button>
             ) : (
               file && (
-                <button
-                  onClick={startLive}
-                  disabled={isStarting}
-                  className="w-full py-4 rounded-xl bg-action hover:bg-action-hover text-white font-bold text-lg shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
-                >
-                  {isStarting ? 'Starting…' : 'Watch live again'}
-                </button>
+                <>
+                  <Button
+                    size="lg"
+                    className="h-12 w-full text-base bg-action text-action-foreground hover:bg-action-hover"
+                    onClick={startLive}
+                    disabled={isStarting || isProcessing}
+                  >
+                    {isStarting ? 'Starting…' : 'Watch live again'}
+                  </Button>
+                  {isProcessing && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Full-video translation is running — one GPU job at a time.
+                    </p>
+                  )}
+                </>
               )
+            )}
+            {liveRunning && (
+              <>
+                <Button variant="link" size="sm" className="w-full" disabled>
+                  or translate the full video →
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Stop the live session first — one GPU job at a time.
+                </p>
+              </>
             )}
           </>
         ) : (
           <>
             <Card title="Output">
               {!file ? (
-                <p className="text-xs text-ink-faint leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   Your files will land here — subtitle file{config.burnSubtitles ? ' and burned video' : ''}.
                 </p>
               ) : (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl opacity-70">
+                  <div className="flex items-center justify-between gap-3 rounded-lg border p-3 opacity-70">
                     <div className="min-w-0">
-                      <p className="font-semibold text-ink truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}.{config.subtitleFormat}</p>
-                      <p className="text-xs text-ink-faint">Subtitle file</p>
+                      <p className="font-semibold text-foreground truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}.{config.subtitleFormat}</p>
+                      <p className="text-xs text-muted-foreground">Subtitle file</p>
                     </div>
-                    <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-edge/70 text-ink-faint">
+                    <Badge variant="secondary">
                       {isProcessing ? 'queued' : 'waiting'}
-                    </span>
+                    </Badge>
                   </div>
                   {config.burnSubtitles && (
-                    <div className="flex items-center justify-between gap-3 p-3 bg-raised border border-edge rounded-xl opacity-70">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border p-3 opacity-70">
                       <div className="min-w-0">
-                        <p className="font-semibold text-ink truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}{settings.outputSuffix || '_translated'}.mp4</p>
-                        <p className="text-xs text-ink-faint">Burned video</p>
+                        <p className="font-semibold text-foreground truncate text-sm">{file.name.replace(/\.[^.]+$/, '')}{settings.outputSuffix || '_translated'}.mp4</p>
+                        <p className="text-xs text-muted-foreground">Burned video</p>
                       </div>
-                      <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-edge/70 text-ink-faint">
+                      <Badge variant="secondary">
                         {isProcessing ? 'queued' : 'waiting'}
-                      </span>
+                      </Badge>
                     </div>
                   )}
                 </div>
               )}
             </Card>
 
-            <button
+            <Button
+              size="lg"
+              className="h-12 w-full text-base bg-action text-action-foreground hover:bg-action-hover"
               onClick={startLive}
-              disabled={!file || isStarting}
-              className="w-full py-4 rounded-xl bg-action hover:bg-action-hover text-white font-bold text-lg shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-action focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+              disabled={!file || isStarting || isProcessing}
             >
               {isStarting ? 'Starting…' : 'Watch with live subtitles'}
-            </button>
-            {file && !isProcessing && (
+            </Button>
+            {isProcessing && (
+              <p className="text-xs text-muted-foreground text-center">
+                Full-video translation is running — one GPU job at a time.
+              </p>
+            )}
+            {file && !isProcessing && !isStarting && (
               <>
-                <button
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="w-full"
                   onClick={() => onStart(file, config)}
-                  className="w-full text-xs font-semibold text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 rounded py-1"
                 >
                   or translate the full video →
-                </button>
-                <p className="text-xs text-ink-faint text-center">
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
                   Everything is local — nothing leaves your machine.
                 </p>
               </>
