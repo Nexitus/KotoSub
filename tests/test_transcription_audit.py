@@ -79,8 +79,9 @@ class TestAnnealKwargs(unittest.TestCase):
         self.assertEqual(kwargs["beam_size"], settings.WHISPER_RETRY_BEAM_SIZE)
         self.assertEqual(
             kwargs["temperature"],
-            [t.strip() for t in settings.WHISPER_RETRY_TEMPERATURE.split(",")],
+            [float(t) for t in settings.WHISPER_RETRY_TEMPERATURE.split(",") if t.strip()],
         )
+        self.assertTrue(all(isinstance(t, float) for t in kwargs["temperature"]))
         self.assertEqual(kwargs["patience"], settings.WHISPER_RETRY_PATIENCE)
 
 

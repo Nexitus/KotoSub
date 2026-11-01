@@ -73,7 +73,7 @@ class TranscriptionService:
                                    speech_pad_ms=settings.WHISPER_SPEECH_PAD_MS)
         }
         if anneal:
-            temps = [t.strip() for t in settings.WHISPER_RETRY_TEMPERATURE.split(",") if t.strip()]
+            temps = [float(t) for t in settings.WHISPER_RETRY_TEMPERATURE.split(",") if t.strip()]
             kwargs["temperature"] = temps
             kwargs["patience"] = settings.WHISPER_RETRY_PATIENCE
         if clip_timestamps:

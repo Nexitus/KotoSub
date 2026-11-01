@@ -22,21 +22,6 @@ LLM_MODELS = [
         "recommended_for": ["*"]
     },
     {
-        "label": "Gemma 4 12B QAT — Multilingual Mid-Tier (9 GB VRAM)",
-        "repo": "unsloth/gemma-4-12B-it-qat-GGUF",
-        "file": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf"
-    },
-    {
-        "label": "Qwen 3.5 9B — Great Quality / Low VRAM (6 GB VRAM)",
-        "repo": "unsloth/Qwen3.5-9B-GGUF",
-        "file": "Qwen3.5-9B-Q4_K_M.gguf"
-    },
-    {
-        "label": "Qwen 3.5 4B — Speed Priority (2.5 GB VRAM)",
-        "repo": "unsloth/Qwen3.5-4B-GGUF",
-        "file": "Qwen3.5-4B-Q4_K_M.gguf"
-    },
-    {
         "label": "GLM-4 9B — Chinese Specialist (5.5 GB VRAM)",
         "repo": "bartowski/glm-4-9b-chat-GGUF",
         "file": "glm-4-9b-chat-Q4_K_M.gguf",
@@ -54,7 +39,7 @@ RECOMMENDED_BY_LANG = {
 # Optional quality-estimation model for the targeted QA pass is downloaded
 # by comet itself on first use (gated: accept the license on HuggingFace).
 
-WHISPER_MODELS = ["medium", "large-v3", "large-v3-turbo", "distil-whisper/distil-large-v3.5-ct2"]
+WHISPER_MODELS = ["large-v3-turbo", "distil-whisper/distil-large-v3.5-ct2"]
 
 # Alternative transcription engine (optional dependency: `pip install qwen-asr`).
 # Whisper stays the default; this is offered in the same transcription selector.

@@ -23,6 +23,14 @@ def _release_gpu_memory():
     except ImportError:
         pass
 
+def _output_filename(base: str, output_suffix: str, include_language: bool, target_lang: str, ext: str) -> str:
+    """Output name: <base><suffix>[_<lang>].<ext>; suffix may be empty."""
+    suffix = output_suffix or ""
+    if include_language:
+        suffix += f"_{target_lang}"
+    return f"{base}{suffix}.{ext}"
+
+
 class VideoTranslatorApp:
     def __init__(self):
         self.video_processor = VideoProcessor()
@@ -43,6 +51,7 @@ class VideoTranslatorApp:
                 subtitle_format: str = "srt",
                 output_suffix: str = "_translated",
                 include_language_in_name: bool = True,
+                output_basename: str = None,
                 progress_callback=None) -> Dict[str, Any]:
         """
         Orchestrates the entire translation process.
@@ -107,7 +116,11 @@ class VideoTranslatorApp:
                 if progress_callback: progress_callback(0.35, "Identifying speakers (Diarization)...", step="diarization")
                 diarization_service = DiarizationService(auth_token=hf_token)
                 diarization_segments = diarization_service.diarize(audio_path)
-                transcript_segments = diarization_service.assign_speakers(transcript_segments, diarization_segments)
+                if diarization_segments:
+                    transcript_segments = diarization_service.assign_speakers(transcript_segments, diarization_segments)
+                    # Word-level regrouping so a subtitle line never carries
+                    # two voices; needs word timestamps from transcription.
+                    transcript_segments = diarization_service.split_segments_at_speaker_changes(transcript_segments)
                 del diarization_service
                 _release_gpu_memory()
 
@@ -166,12 +179,9 @@ class VideoTranslatorApp:
             final_output_dir = output_dir if output_dir else settings.OUTPUT_DIR
             os.makedirs(final_output_dir, exist_ok=True)
             
-            base_filename = os.path.splitext(os.path.basename(video_path))[0]
-            final_suffix = output_suffix
-            if include_language_in_name:
-                final_suffix += f"_{target_lang}"
-            
-            output_file = os.path.join(final_output_dir, f"{base_filename}{final_suffix}.{ext}")
+            base_filename = output_basename or os.path.splitext(os.path.basename(video_path))[0]
+            output_file = os.path.join(final_output_dir, _output_filename(
+                base_filename, output_suffix, include_language_in_name, target_lang, ext))
             
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(subtitle_content)
@@ -181,7 +191,8 @@ class VideoTranslatorApp:
             if burn_subtitles:
                 if progress_callback: progress_callback(0.85, "Burning subtitles into video...", step="burn_in")
                 burn_opts = burn_options or {}
-                video_output_file = os.path.join(final_output_dir, f"{base_filename}{final_suffix}.mp4")
+                video_output_file = os.path.join(final_output_dir, _output_filename(
+                    base_filename, output_suffix, include_language_in_name, target_lang, "mp4"))
                 self.video_processor.burn_subtitles(
                     video_path=video_path,
                     subtitles_path=output_file,

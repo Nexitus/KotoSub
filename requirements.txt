@@ -16,6 +16,12 @@ faster-whisper>=1.0.0
 #   pip install qwen-asr
 # Kept out of the default install — the Whisper path must work without it.
 
+# Optional (speaker separation, pyannote diarization; needs pyannote.audio 4.x —
+# 3.x imports torchaudio APIs removed in 2.9+ and fails to load):
+#   pip install "pyannote.audio>=4.0,<5"
+# Gated model: create a Hugging Face token and accept the terms at
+#   https://huggingface.co/pyannote/speaker-diarization-community-1
+
 # torch, torchaudio, and llama-cpp-python are installed by run.py
 # using special index URLs to get prebuilt CUDA wheels.
 # Do NOT add them here — pip will try to build from source and fail.

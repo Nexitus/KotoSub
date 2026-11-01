@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import os
+import re
 import json
 import asyncio
 import threading
@@ -15,6 +16,7 @@ from app.core import VideoTranslatorApp
 from app.processors.live import LiveTranslationEngine
 from app.processors.video import VideoProcessor
 from app.config import settings
+from app import gpu_guard
 
 app = FastAPI(title="Video Subtitle Translator API")
 translator = VideoTranslatorApp()
@@ -22,10 +24,36 @@ translator = VideoTranslatorApp()
 # In-memory live session store
 live_sessions = {}
 
+# Finished output files this process may serve: token -> {"path", "filename"}.
+# Ephemeral like the job store; tokens die with the process.
+_job_downloads = {}
+_downloads_lock = threading.Lock()
+
+
+def register_job_output(path: str) -> str:
+    """Registers a finished output file for download; returns its token."""
+    token = uuid.uuid4().hex
+    with _downloads_lock:
+        _job_downloads[token] = {"path": path, "filename": os.path.basename(path)}
+    return token
+
+
+def _lookup_download(token: str):
+    with _downloads_lock:
+        return _job_downloads.get(token)
+
+
+def _sanitize_basename(filename: str) -> str:
+    """Original upload name -> safe output base: no directories, no extension,
+    [A-Za-z0-9_-] only, 'video' when nothing usable is left."""
+    base = os.path.splitext(os.path.basename((filename or "").replace("\\", "/")))[0]
+    base = re.sub(r"[^A-Za-z0-9_-]+", "_", base).strip("_")
+    return base or "video"
+
 # Model download state (Settings → download missing models); a single worker
 # thread runs at most one download batch — same behavior as the run.py manager.
 model_download_state = {"active": False, "kind": None, "logs": [],
-                        "error": None, "finished": False}
+                        "error": None, "failed": [], "finished": False}
 
 def _whisper_installed(model_name: str, models_dir: str) -> bool:
     cache_name = model_name.replace("/", "--")
@@ -49,6 +77,7 @@ def _run_model_downloads(kind: str):
     def set_status(installed: bool):
         return "✅ Installed" if installed else "❌ Missing"
 
+    failed = []
     try:
         models_dir = settings.MODELS_DIR
         os.makedirs(models_dir, exist_ok=True)
@@ -59,27 +88,37 @@ def _run_model_downloads(kind: str):
                 path = os.path.join(models_dir, model["file"])
                 log(f"{model['label']}: {set_status(os.path.exists(path))}")
                 if not os.path.exists(path):
-                    download_models.download_llm_model(model)
+                    if not download_models.download_llm_model(model):
+                        failed.append(model["label"])
+                        log(f"❌ Failed: {model['label']}")
         if kind in ("whisper", "all"):
             log("--- Whisper Models (Transcription) ---")
             for model_name in download_models.WHISPER_MODELS:
                 is_installed = _whisper_installed(model_name, models_dir)
                 log(f"Whisper {model_name}: {set_status(is_installed)}")
                 if not is_installed:
-                    download_models.download_whisper_model(model_name)
+                    if not download_models.download_whisper_model(model_name):
+                        failed.append(model_name)
+                        log(f"❌ Failed: Whisper {model_name}")
         if kind in ("qwen", "all"):
             log("--- Qwen3-ASR (Alternative Transcription) ---")
             is_installed = download_models.qwen_asr_installed()
             log(f"{download_models.QWEN_ASR['label']}: {set_status(is_installed)}")
             if not is_installed:
-                download_models.download_qwen_asr_model()
+                if not download_models.download_qwen_asr_model():
+                    failed.append(download_models.QWEN_ASR["label"])
+                    log(f"❌ Failed: {download_models.QWEN_ASR['label']}")
 
-        if state["error"] is None:
+        if failed:
+            state["error"] = f"Failed to download: {', '.join(failed)}"
+            log(f"❌ Download finished with {len(failed)} failure(s): {', '.join(failed)}")
+        else:
             log("✅ Download finished")
     except Exception as e:
         state["error"] = str(e)
         log(f"❌ Download failed: {e}")
     finally:
+        state["failed"] = failed
         state["active"] = False
         state["finished"] = True
 
@@ -102,7 +141,7 @@ def start_model_downloads(req: ModelDownloadRequest):
     if model_download_state["active"]:
         raise HTTPException(status_code=409, detail="A model download is already running")
     model_download_state.update({"active": True, "kind": req.kind, "logs": [],
-                                 "error": None, "finished": False})
+                                 "error": None, "failed": [], "finished": False})
     threading.Thread(target=_run_model_downloads, args=(req.kind,), daemon=True).start()
     return {"started": True, "kind": req.kind}
 
@@ -111,7 +150,7 @@ def model_downloads_status():
     state = model_download_state
     return {"active": state["active"], "kind": state["kind"],
             "logs": state["logs"][-100:], "error": state["error"],
-            "finished": state["finished"]}
+            "failed": state["failed"], "finished": state["finished"]}
 
 
 
@@ -124,12 +163,22 @@ async def translate_stream(
     Streaming endpoint that returns NDJSON progress events.
     """
     config_data = json.loads(config)
-    
+    output_basename = _sanitize_basename(video.filename)
+
+    if not gpu_guard.try_acquire("batch"):
+        busy = gpu_guard.held_kind()
+        raise HTTPException(status_code=409,
+                            detail=f"A {'live' if busy == 'live' else 'full-video'} job is already using the GPU")
+
     # Save uploaded file to temp
-    suffix = os.path.splitext(video.filename)[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(video.file, tmp)
-        temp_video_path = tmp.name
+    try:
+        suffix = os.path.splitext(video.filename)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(video.file, tmp)
+            temp_video_path = tmp.name
+    except Exception:
+        gpu_guard.release("batch")
+        raise
 
     q = queue.Queue()
 
@@ -177,6 +226,7 @@ async def translate_stream(
                 subtitle_format=config_data.get("subtitleFormat", "srt"),
                 output_suffix=config_data.get("outputSuffix", "_translated"),
                 include_language_in_name=config_data.get("includeLanguageInName", True),
+                output_basename=output_basename,
                 burn_options={
                     "font": config_data.get("font"),
                     "font_size": config_data.get("fontSize"),
@@ -186,6 +236,12 @@ async def translate_stream(
                 },
                 progress_callback=progress_callback
             )
+            downloads = {"subtitle": register_job_output(result["output_file"]), "video": None}
+            if result.get("video_output"):
+                downloads["video"] = register_job_output(result["video_output"])
+            result.pop("output_file", None)
+            result.pop("video_output", None)
+            result["downloads"] = downloads
             completion_data = {
                 "step": "completed",
                 "progress": 100,
@@ -203,6 +259,7 @@ async def translate_stream(
             }
             q.put(error_data)
         finally:
+            gpu_guard.release("batch")
             q.put(None) # Sentinel
             if os.path.exists(temp_video_path):
                 os.remove(temp_video_path)
@@ -238,12 +295,7 @@ def _vram_mb() -> int:
     return 0
 
 def _auto_select_llm():
-    vram_mb = _vram_mb()
-    if vram_mb >= 24000:
-        return settings.LOCAL_LLM_MODEL, settings.LOCAL_LLM_FILE
-    if vram_mb >= 12000:
-        return settings.LIVE_FALLBACK_LLM_MODEL, settings.LIVE_FALLBACK_LLM_FILE
-    return "unsloth/Qwen3.5-4B-GGUF", "Qwen3.5-4B-Q4_K_M.gguf"
+    return settings.LOCAL_LLM_MODEL, settings.LOCAL_LLM_FILE
 
 @app.post("/api/live/start")
 def live_start(req: LiveStartRequest):
@@ -252,13 +304,16 @@ def live_start(req: LiveStartRequest):
     return _start_live_session(video_path=req.video_path, source_lang=req.source_lang,
         target_lang=req.target_lang, lookahead_seconds=req.lookahead_seconds,
         whisper_model=req.whisper_model, llm_model=req.llm_model, local_llm_file=req.local_llm_file,
-        temp_upload_path=None)
+        temp_upload_path=None, output_basename=_sanitize_basename(req.video_path))
 
-def _teardown_session(session: dict):
+def _teardown_session(session: dict) -> bool:
+    """Stops the live worker. True only once it has exited and its files are safe to remove."""
     try:
-        session["engine"].stop()
+        stopped = bool(session["engine"].stop())
     except Exception:
-        pass
+        return False
+    if not stopped:
+        return False
     for path in (session.get("remuxed_path"), session.get("temp_upload_path")):
         if path and os.path.exists(path):
             try:
@@ -268,11 +323,13 @@ def _teardown_session(session: dict):
     engine = session.get("engine")
     if engine and engine.hls_dir:
         shutil.rmtree(engine.hls_dir, ignore_errors=True)
+    return True
 
-def _cleanup_all_live_sessions():
+def _cleanup_all_live_sessions() -> None:
     for old_id, old_session in list(live_sessions.items()):
-        _teardown_session(old_session)
-        live_sessions.pop(old_id, None)
+        if _teardown_session(old_session):
+            live_sessions.pop(old_id, None)
+            gpu_guard.release("live")
 
 def _llm_fits_vram(local_llm_file: str) -> bool:
     vram_mb = _vram_mb()
@@ -287,47 +344,57 @@ def _llm_fits_vram(local_llm_file: str) -> bool:
         return True
     return (size_mb + 6144) < vram_mb
 
-def _start_live_session(video_path, source_lang, target_lang, lookahead_seconds, whisper_model, llm_model, local_llm_file, temp_upload_path=None) -> dict:
+def _start_live_session(video_path, source_lang, target_lang, lookahead_seconds, whisper_model, llm_model, local_llm_file, temp_upload_path=None, output_basename=None) -> dict:
+    if gpu_guard.held_kind() == "batch":
+        raise HTTPException(status_code=409, detail="A full-video job is already using the GPU")
     _cleanup_all_live_sessions()
-    can_play, needs_remux, reason = VideoProcessor().is_browser_playable(video_path)
-    needs_transcode = not can_play and not needs_remux
-    if needs_transcode:
-        print(f"[Live] {reason} — scheduling automatic H.264 conversion")
+    if not gpu_guard.try_acquire("live"):
+        raise HTTPException(status_code=409, detail="The previous live session is still stopping; try again shortly")
+    try:
+        can_play, needs_remux, reason = VideoProcessor().is_browser_playable(video_path)
+        needs_transcode = not can_play and not needs_remux
+        if needs_transcode:
+            print(f"[Live] {reason} — scheduling automatic H.264 conversion")
 
-    remuxed = False
-    remux_path = None
-    if needs_remux:
-        remux_path = os.path.join(settings.LIVE_REMUX_DIR, f"{os.path.splitext(os.path.basename(video_path))[0]}_remux.mp4")
-        video_path = VideoProcessor().remux_to_mp4(video_path, remux_path)
-        remuxed = True
+        remuxed = False
+        remux_path = None
+        if needs_remux:
+            remux_path = os.path.join(settings.LIVE_REMUX_DIR, f"{os.path.splitext(os.path.basename(video_path))[0]}_remux.mp4")
+            video_path = VideoProcessor().remux_to_mp4(video_path, remux_path)
+            remuxed = True
 
-    duration = VideoProcessor().get_duration(video_path)
+        duration = VideoProcessor().get_duration(video_path)
 
-    if llm_model is None:
-        llm_model, local_llm_file = _auto_select_llm()
-    elif not _llm_fits_vram(local_llm_file):
-        print(f"[Live] Requested LLM '{local_llm_file}' plus Whisper exceeds VRAM, falling back to auto-selected model")
-        llm_model, local_llm_file = _auto_select_llm()
+        if llm_model is None:
+            llm_model, local_llm_file = _auto_select_llm()
+        elif not _llm_fits_vram(local_llm_file):
+            print(f"[Live] Requested LLM '{local_llm_file}' plus Whisper exceeds VRAM, falling back to auto-selected model")
+            llm_model, local_llm_file = _auto_select_llm()
 
-    lookahead = lookahead_seconds if lookahead_seconds is not None else settings.LIVE_LOOKAHEAD_SECONDS
-    session_id = str(uuid.uuid4())
+        lookahead = lookahead_seconds if lookahead_seconds is not None else settings.LIVE_LOOKAHEAD_SECONDS
+        session_id = str(uuid.uuid4())
 
-    engine = LiveTranslationEngine(
-        video_path=video_path,
-        source_lang=source_lang,
-        target_lang=target_lang,
-        lookahead_seconds=lookahead,
-        whisper_model=whisper_model,
-        llm_model=llm_model,
-        local_llm_file=local_llm_file,
-        transcode_to_h264=needs_transcode,
-        session_id=session_id,
-    )
-    engine.remuxed = remuxed
-    engine.start()
-    live_sessions[session_id] = {"engine": engine, "remuxed_path": remux_path if remuxed else None, "temp_upload_path": temp_upload_path, "last_segment_count": 0}
+        engine = LiveTranslationEngine(
+            video_path=video_path,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            lookahead_seconds=lookahead,
+            whisper_model=whisper_model,
+            llm_model=llm_model,
+            local_llm_file=local_llm_file,
+            transcode_to_h264=needs_transcode,
+            session_id=session_id,
+            output_basename=output_basename,
+        )
+        engine.remuxed = remuxed
+        srt_token = register_job_output(engine.srt_file_path)
+        engine.start()
+        live_sessions[session_id] = {"engine": engine, "remuxed_path": remux_path if remuxed else None, "temp_upload_path": temp_upload_path, "last_segment_count": 0, "srt_download_token": srt_token}
 
-    return {"session_id": session_id, "video_path": video_path, "duration": duration, "remuxed": remuxed, "transcoding": needs_transcode, "hls": needs_transcode}
+        return {"session_id": session_id, "video_path": video_path, "duration": duration, "remuxed": remuxed, "transcoding": needs_transcode, "hls": needs_transcode}
+    except Exception:
+        gpu_guard.release("live")
+        raise
 
 @app.post("/api/live/start_upload")
 def live_start_upload(video: UploadFile = File(...), config: str = Form(...)):
@@ -346,6 +413,7 @@ def live_start_upload(video: UploadFile = File(...), config: str = Form(...)):
             llm_model=config_data.get("llm_model"),
             local_llm_file=config_data.get("local_llm_file"),
             temp_upload_path=temp_path,
+            output_basename=_sanitize_basename(video.filename),
         )
     except Exception:
         if os.path.exists(temp_path):
@@ -391,6 +459,7 @@ def live_status(session_id: str, position: float = None, state: str = None):
     if position is not None:
         engine.update_position(position, state or "Playing")
     status = engine.get_status()
+    status.pop("srt_file_path", None)
     new_segment_count = len(status["segments"]) - session["last_segment_count"]
     session["last_segment_count"] = len(status["segments"])
     filename = os.path.basename(status["filepath"]) if status["filepath"] else None
@@ -399,6 +468,7 @@ def live_status(session_id: str, position: float = None, state: str = None):
         "session_id": session_id,
         "filename": filename,
         "new_segment_count": new_segment_count,
+        "srt_download_token": session["srt_download_token"],
     }
 
 @app.post("/api/live/stop/{session_id}")
@@ -406,19 +476,21 @@ def live_stop(session_id: str):
     session = live_sessions.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    srt_file_path = session["engine"].srt_file_path
-    _teardown_session(session)
-    del live_sessions[session_id]
-    return {"srt_file_path": srt_file_path}
+    if not _teardown_session(session):
+        return JSONResponse(status_code=202, content={"status": "stopping"})
+    gpu_guard.release("live")
+    live_sessions.pop(session_id, None)
+    return {"status": "stopped", "srt_download_token": session["srt_download_token"]}
 
 @app.get("/api/download")
-def download_file(path: str = Query(...)):
-    """
-    Download endpoint for processed files.
-    """
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path, filename=os.path.basename(path))
+def download_file(token: str = Query(...)):
+    """Serves a file registered by a finished job or live session in this process."""
+    entry = _lookup_download(token)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Unknown or expired download token")
+    if not os.path.isfile(entry["path"]):
+        raise HTTPException(status_code=410, detail="File no longer exists on the server")
+    return FileResponse(entry["path"], filename=entry["filename"])
 
 @app.get("/api/models")
 def get_available_models():

@@ -1,8 +1,12 @@
 from typing import List, Dict, Any
 import os
+import re
 from app.cuda import fix_cuda_paths
 from app.config import settings
 from app.processors.subtitles import is_cjk_char
+
+# Strict numbered-line grammar: "N. text" / "N) text" / "N：text" ...
+_NUMBERED_LINE = re.compile(r"^\s*(\d+)\s*[.．)）:：]\s*(.*?)\s*$")
 
 class TranslationService:
     # Sugoi models are trained/tuned for a ~2048 token context window.
@@ -55,74 +59,34 @@ class TranslationService:
         except Exception:
             pass
 
-    def _clean_translation(self, text: str, source_text: str = None) -> str:
-        import re
-
-        prefixes = [
-            r"^(Translation|Translated|Result|English|Output):\s*",
-            r"^(Orig|Original|Src|Source):\s*.*?(?=(Translation|Translated|Result|English|Output|$))",
-        ]
-
-        cleaned = text.strip()
-
+    def _clean_translation(self, text: str) -> str:
         # Remove chain-of-thought reasoning tags (Qwen 3 and similar models)
-        cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+        cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.IGNORECASE | re.DOTALL)
         cleaned = re.sub(r'<thinking>.*?</thinking>', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-
-        for pattern in prefixes:
-            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
-
-        blacklist = [
-            r"amara\.org", r"subtitle(s)? by", r"translated by", r"edited by",
-            r"proofread by", r"corrected by", r"captioned by", r"sync(hronized)? by",
-            r"brought to you by", r"support us at", r"osdb\.link",
-            r"opensubtitles", r"titlovi\.com", r"podnapisi\.net",
-        ]
-
-        for pattern in blacklist:
-            lines = cleaned.split("\n")
-            cleaned = "\n".join(l for l in lines if not re.search(pattern, l, re.IGNORECASE)).strip()
-
-        if "\n" in cleaned:
-            lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-            if len(lines) > 1:
-                trans_lines = [l for l in lines if not any(p in l.lower() for p in ["orig:", "source:", "original:"])]
-                if trans_lines:
-                    cleaned = " ".join(trans_lines)
-
-        cleaned = re.sub(r"^\w+:\s*", "", cleaned).strip()
-        return cleaned
+        lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
+        return " ".join(lines)
 
     @staticmethod
     def _has_cjk(text: str) -> bool:
         return any(is_cjk_char(ch) for ch in text)
 
     def _parse_numbered_lines(self, completion: str, expected: int):
-        """Parses 'N. text' lines from a completion. Returns a list of exactly
-        `expected` strings, or None if the response is unusable."""
-        lines = completion.split("\n")
-        translations = []
-        for line in lines:
-            line = line.strip()
-            if not line:
+        """Parses strictly numbered 'N. text' lines. Returns exactly `expected`
+        strings in input order, or None if any line breaks the grammar."""
+        result = [None] * expected
+        for line in completion.split("\n"):
+            if not line.strip():
                 continue
-            if ". " in line:
-                parts = line.split(". ", 1)
-                if parts[0].isdigit():
-                    translations.append(parts[1].strip())
-            elif line[0].isdigit() and len(line) > 1:
-                for k, char in enumerate(line):
-                    if not char.isdigit():
-                        translations.append(line[k:].lstrip(" .:;，,)）］】]").strip())
-                        break
-
-        if len(translations) == expected:
-            return translations
-
-        raw_lines = [l for l in lines if l.strip()]
-        if len(raw_lines) == expected:
-            return [l.split(". ", 1)[-1] if ". " in l else l for l in raw_lines]
-        return None
+            match = _NUMBERED_LINE.match(line)
+            if not match:
+                return None
+            number, text = int(match.group(1)), match.group(2)
+            if not (1 <= number <= expected) or result[number - 1] is not None or not text:
+                return None
+            result[number - 1] = text
+        if any(t is None for t in result):
+            return None
+        return result
 
     def _translate_lines(self, batch_segments: List[Dict[str, Any]],
                          source_lang: str, target_lang: str,
@@ -228,7 +192,7 @@ class TranslationService:
 
                 for seg, trans in zip(batch, translations):
                     error = trans.startswith("[Error")
-                    cleaned = trans if error else self._clean_translation(trans, seg['text'])
+                    cleaned = trans if error else self._clean_translation(trans)
                     results.append({
                         "start": seg['start'],
                         "end": seg['end'],
@@ -265,7 +229,7 @@ class TranslationService:
 
         results = []
         for seg, trans in zip(segments, translations):
-            cleaned = trans if trans.startswith("[Error") else self._clean_translation(trans, seg['text'])
+            cleaned = trans if trans.startswith("[Error") else self._clean_translation(trans)
             results.append({
                 "start": seg['start'],
                 "end": seg['end'],
@@ -380,7 +344,7 @@ class TranslationService:
                         ],
                         temperature=0.2
                     )
-                    refined = self._clean_translation(refined, original)
+                    refined = self._clean_translation(refined)
                     if refined:
                         new_segment = segment.copy()
                         new_segment['text'] = refined

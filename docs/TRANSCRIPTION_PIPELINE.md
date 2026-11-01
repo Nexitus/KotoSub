@@ -45,7 +45,10 @@ video file
   │          metadata mirrors the Whisper dict shape (start/end/text/
   │          speaker/avg_logprob/words) so diarization, translation,
   │          refinement and generation are engine-agnostic
-  ├─ 6. diarization (optional, pyannote)
+  ├─ 6. diarization (optional, pyannote 4.x, needs HF token): assigns the
+  │      max-overlap speaker to each segment, then re-groups words at
+  │      speaker handoffs so a line never mixes two voices (wordless
+  │      segments pass through whole)
   ├─ 7. LLM translation + quality check
   └─ 8. subtitle refinement (CPS split, timing polish)
 ```

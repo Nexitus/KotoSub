@@ -78,7 +78,7 @@ python -m unittest tests/test_video.py
 - **`processors/`** — Independent service classes:
   - `video.py` — FFmpeg wrapper: validate, extract audio (with denoising/normalization), burn subtitles (NVENC/CPU), get duration
   - `transcription.py` — Local `faster-whisper` transcription (CUDA/CPU) with VAD filter
-  - `translation.py` — Local `llama-cpp-python` translation (sequential, locked). Includes `quality_check()` second pass and `_clean_translation()` to strip hallucinations/watermarks.
+  - `translation.py` — Local `llama-cpp-python` translation (sequential, locked). Includes `quality_check()` second pass and `_clean_translation()` to strip model reasoning wrappers (`<think>` tags) and normalize whitespace.
   - `subtitles.py` — Generates SRT, VTT, ASS formats; `refine_segments()` splits high-CPS segments
   - `diarization.py` — `pyannote-audio` speaker identification, assigned to segments before translation
 

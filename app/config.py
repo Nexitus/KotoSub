@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     HF_TOKEN: Optional[str] = None
 
     # Local Whisper Settings
-    # Options: tiny, base, small, medium, large-v3, large-v3-turbo, distil-whisper/distil-large-v3.5-ct2
+    # Options: large-v3-turbo, distil-whisper/distil-large-v3.5-ct2, Qwen/Qwen3-ASR-1.7B
     LOCAL_WHISPER_MODEL: str = "large-v3-turbo"
 
     # Audio extraction: aggressive denoise often hurts Whisper (it was trained
@@ -106,9 +106,6 @@ class Settings(BaseSettings):
     LLM_FLASH_ATTN: bool = True
     GPU_CODEC_CHAIN: str = "hevc_nvenc,av1_nvenc,h264_nvenc"
     LIVE_LOOKAHEAD_SECONDS: int = 30
-    LIVE_CHUNK_OVERLAP_SECONDS: float = 1.5
-    LIVE_FALLBACK_LLM_MODEL: str = "unsloth/Qwen3.5-9B-GGUF"
-    LIVE_FALLBACK_LLM_FILE: str = "Qwen3.5-9B-Q4_K_M.gguf"
     LIVE_SESSION_TIMEOUT_SECONDS: int = 120
     LIVE_REMUX_DIR: str = os.path.join(os.getcwd(), "temp", "remux")
 

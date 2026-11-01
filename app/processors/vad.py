@@ -90,9 +90,3 @@ def windows_from_regions(speech_regions: List[Tuple[float, float]],
         else:
             windows.append([r_start, r_end])
     return [(w[0], w[1]) for w in windows]
-
-
-def has_speech(audio_path: str) -> bool:
-    """True unless the VAD ran and found zero speech regions."""
-    regions = get_speech_regions(audio_path)
-    return regions is None or bool(regions)

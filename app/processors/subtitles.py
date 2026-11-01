@@ -15,13 +15,19 @@ class SubtitleGenerator:
     def generate_srt(self, segments: List[Dict[str, Any]]) -> str:
         """
         Generates an SRT content string from segments.
-        Includes speaker identification if available.
+        When diarization assigned multiple speakers, the start of each new
+        speaker turn opens with a dialogue dash — no explicit speaker ids.
         """
+        distinct = {s.get('speaker') for s in segments if s.get('speaker')}
+        single_speaker = len(distinct) <= 1
         blocks = []
+        prev_speaker = None
         for i, seg in enumerate(segments, 1):
+            speaker = seg.get('speaker')
             text = seg['text']
-            if seg.get('speaker'):
-                text = f"[{seg['speaker']}]: {text}"
+            if speaker and not single_speaker and speaker != prev_speaker:
+                text = "\u2013 " + text
+            prev_speaker = speaker
             blocks.append(
                 f"{i}\n"
                 f"{self._fmt_time(seg['start'])} --> {self._fmt_time(seg['end'])}\n"
@@ -32,13 +38,20 @@ class SubtitleGenerator:
     def generate_vtt(self, segments: List[Dict[str, Any]]) -> str:
         """
         Feature 6: Generates WebVTT content (standard for web players).
+        Same speaker-turn dash rule as SRT (no `<v>` voice spans — plain text
+        renders identically in every player).
         """
         output = ["WEBVTT\n"]
+        distinct = {s.get('speaker') for s in segments if s.get('speaker')}
+        single_speaker = len(distinct) <= 1
+        prev_speaker = None
         for i, seg in enumerate(segments):
+            speaker = seg.get('speaker')
             text = seg['text']
 
-            if seg.get('speaker'):
-                text = f"<v {seg['speaker']}>{text}</v>"
+            if speaker and not single_speaker and speaker != prev_speaker:
+                text = "\u2013 " + text
+            prev_speaker = speaker
 
             output.append(f"{i+1}")
             output.append(f"{self._fmt_time(seg['start'], ms_sep='.')} --> {self._fmt_time(seg['end'], ms_sep='.')}")
@@ -205,7 +218,7 @@ class SubtitleGenerator:
             start = self._fmt_time(seg['start'], ms_sep='.', ms_digits=2, hour_pad=1)
             end = self._fmt_time(seg['end'], ms_sep='.', ms_digits=2, hour_pad=1)
             text = seg['text'].replace('\n', '\\N')
-            speaker = str(seg.get('speaker', 'Default'))
+            speaker = str(seg.get('speaker') or 'Default')
             events.append(f"Dialogue: 0,{start},{end},Default,{speaker},0,0,0,,{text}")
 
         return header + "\n".join(events)
